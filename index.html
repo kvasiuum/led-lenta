@@ -402,7 +402,6 @@
   #meter i { background: #fff; }
   .light-card { padding: 20px 20px 10px; }
   .light-card .music-opts { margin-top: 0; padding-top: 0; border-top: 0; }
-  .sens-hint { margin: 6px 0 0; font-size: 13px; }
   .check input, .days button { accent-color: #fff; }
   #toast { background: rgba(40,40,46,.72); color: #fff; border: 1px solid rgba(255,255,255,.14);
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border-radius: 18px; }
@@ -655,7 +654,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12h3l3-8 4 16 3-8h7"/></svg>
             <span id="scSyncLabel">Точнее: по звуку вкладки</span></button>
           <p class="hint" id="scSyncHint" hidden>В окне Chrome выбери эту вкладку и включи «Также поделиться звуком вкладки». Музыка продолжит играть как обычно.</p>
-          <p class="hint" id="waveInfo"></p>
+          <p class="hint" id="waveInfo" hidden></p>
           <ol class="pl-tracks" id="plTracks"></ol>
           <button class="linkish" id="scShowWidget" type="button">Показать плеер SoundCloud</button>
         </div>
@@ -677,7 +676,6 @@
         <div class="field" style="margin-top:18px">
           <div class="label"><label for="sens">Чувствительность к биту</label><span class="num" id="sensVal">147 Гц</span></div>
           <input type="range" id="sens" min="1" max="10" value="6">
-          <p class="hint sens-hint">Слушает бас до этой частоты: 80 Гц — только бочка, 200 Гц — бочка и бас-партия.</p>
         </div>
         <div class="field">
           <div class="label"><label for="smooth">Плавность</label><span class="num" id="smoothVal">6</span></div>
@@ -1684,10 +1682,9 @@
   const wave = { key: null, n: null, onset: null, ready: false, failed: false };
   function waveInfo() {
     const el = $('waveInfo'); if (!el) return;
-    el.textContent = tabSrc ? 'Подсветка: по звуку вкладки (самый точный режим).'
-      : wave.ready ? 'Подсветка: по форме волны трека' + (wave.tempo ? `, ~${Math.round(wave.tempo.bpm)} BPM` : '') + ', без микрофона.'
-      : wave.failed ? 'Форма волны недоступна, лента мигает в ритм 120 BPM. Для точной подсветки включи звук вкладки или микрофон.'
+    el.textContent = !tabSrc && !wave.ready && wave.failed ? 'Форма волны недоступна, лента мигает в ритм 120 BPM. Для точной подсветки включи звук вкладки или микрофон.'
       : '';
+    el.hidden = !el.textContent;
   }
   async function loadWave(s) {
     const key = s && (s.id || s.waveform_url || s.title);
