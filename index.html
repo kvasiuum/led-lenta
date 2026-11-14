@@ -105,7 +105,7 @@
   @media (hover: hover) and (pointer: fine) { [role=tab]:not([aria-selected=true]):hover { color: var(--text); } }
 
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 22px 20px; }
-  .panel h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+  .panel h2, .light-card h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
   .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
 
   /* color */
@@ -359,19 +359,19 @@
   #ambient.has-art .blob { opacity: .12; }
 
   /* glass surfaces */
-  .device, [role=tablist], .panel, details, #bar {
+  .device, [role=tablist], .panel, details, #bar, .light-card {
     position: relative; background: var(--glass-bg) !important; border: 1px solid rgba(255,255,255,.1) !important;
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 12px 32px rgba(0,0,0,.28);
   }
   /* specular rim: brighter on the top-left and bottom-right edges, like light catching glass */
-  .device::before, [role=tablist]::before, .panel::before, details::before, #bar::before {
+  .device::before, [role=tablist]::before, .panel::before, details::before, #bar::before, .light-card::before {
     content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
     background: linear-gradient(140deg, rgba(255,255,255,.5), rgba(255,255,255,.08) 30%, rgba(255,255,255,0) 50%, rgba(255,255,255,.08) 70%, rgba(255,255,255,.32));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
             mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   }
-  .device, .panel, details { border-radius: var(--r-lg); }
+  .device, .panel, details, .light-card { border-radius: var(--r-lg); }
   [role=tablist] { border-radius: 22px; padding: 5px; }
   [role=tab] { border-radius: 17px; color: var(--muted); }
   [role=tab][aria-selected=true] { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
@@ -395,6 +395,9 @@
   input[type=range] { --c: #fff; }
   #bright { --c: rgb(255,0,0); }
   #meter i { background: #fff; }
+  .light-card { padding: 20px 20px 10px; }
+  .light-card .music-opts { margin-top: 0; padding-top: 0; border-top: 0; }
+  .sens-hint { margin: 6px 0 0; font-size: 13px; }
   .check input, .days button { accent-color: #fff; }
   #toast { background: rgba(40,40,46,.72); color: #fff; border: 1px solid rgba(255,255,255,.14);
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border-radius: 18px; }
@@ -446,7 +449,7 @@
   #bar.docked #barArt { width: 72px; height: 72px; }
 
   @media (prefers-reduced-transparency: reduce) {
-    .device, [role=tablist], .panel, details, #bar, #toast { background: #1c1c1f !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .device, [role=tablist], .panel, details, #bar, #toast, .light-card { background: #1c1c1f !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
     #ambient { display: none; }
   }
 
@@ -543,6 +546,7 @@
         <input type="range" id="bright" min="1" max="100" value="100">
       </div>
     </section>
+    <section class="light-card" id="lightCard" aria-label="Как светиться" hidden></section>
   </aside>
 
   <!-- ===== controls ===== -->
@@ -665,8 +669,9 @@
           <button data-mode="strobe" aria-pressed="false">Вспышки</button>
         </div>
         <div class="field" style="margin-top:18px">
-          <div class="label"><label for="sens">Чувствительность к биту</label><span class="num" id="sensVal">6</span></div>
+          <div class="label"><label for="sens">Чувствительность к биту</label><span class="num" id="sensVal">147 Гц</span></div>
           <input type="range" id="sens" min="1" max="10" value="6">
+          <p class="hint sens-hint">Слушает бас до этой частоты: 80 Гц — только бочка, 200 Гц — бочка и бас-партия.</p>
         </div>
         <div class="field">
           <div class="label"><label for="smooth">Плавность</label><span class="num" id="smoothVal">6</span></div>
@@ -946,7 +951,7 @@
   }
   $('power').onclick = () => { if (needConn()) return; setPower(!powered); };
 
-  let collapsePlayer = null;
+  let collapsePlayer = null, placeLightOpts = null;
   /* ================= Tabs ================= */
   const tabs = [...document.querySelectorAll('[role=tab]')];
   function selectTab(tab) {
@@ -957,6 +962,7 @@
       $(t.getAttribute('aria-controls')).hidden = !on;
     });
     if (tab.id === 't-color') drawWheel();
+    if (typeof placeLightOpts === 'function') placeLightOpts();
   }
   tabs.forEach((t, i) => {
     t.onclick = () => selectTab(t);
@@ -1085,7 +1091,7 @@
   showFx();
 
   /* ================= Music ================= */
-  let actx = null, analyser = null;
+  let actx = null, analyser = null, bus = null, bassLP = null, bassAn = null, bassBuf = null;
   let mediaSrc = null, micStream = null, micSrc = null, tabStream = null, tabSrc = null;
   const audio = new Audio(); audio.preload = 'auto';
   let tracks = [], cur = -1, mode = 'rainbow', source = 'file', raf = 0, active = null;
@@ -1097,10 +1103,26 @@
     if (!actx) {
       actx = new (window.AudioContext || window.webkitAudioContext)();
       analyser = actx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.4;
+      // default range tops out at −30 dB, so loud music pinned every bass bin at 255 and no kick stood out
+      analyser.minDecibels = -90; analyser.maxDecibels = -10;
+      // every source feeds one bus: overall loudness → analyser; bass band → its own analyser for the beat
+      bus = actx.createGain(); bus.connect(analyser);
+      const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 30; hp.Q.value = 0.7;
+      bassLP = [0, 1, 2].map(() => { const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7; return f; });
+      bassAn = actx.createAnalyser(); bassAn.fftSize = 512; bassBuf = new Float32Array(bassAn.fftSize);
+      bus.connect(hp); hp.connect(bassLP[0]); bassLP[0].connect(bassLP[1]); bassLP[1].connect(bassLP[2]); bassLP[2].connect(bassAn);
+      setBassCutoff();
     }
     if (actx.state === 'suspended') actx.resume();
   }
   const musicActive = () => !!raf;
+  // «Чувствительность к биту»: 10 → слушаем бас до 80 Гц (только бочка), 1 → до 200 Гц
+  const sensHz = v => Math.round(200 - (clamp(+v, 1, 10) - 1) * 120 / 9);
+  function setBassCutoff() {
+    const hz = sensHz($('sens').value);
+    $('sensVal').textContent = hz + ' Гц';
+    if (bassLP) bassLP.forEach(f => f.frequency.setTargetAtTime(hz, actx.currentTime, 0.02));
+  }
   const fmt = s => isFinite(s) && s > 0 ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '0:00';
   const rnd = (n, not) => { if (n < 2) return 0; let i; do { i = Math.floor(Math.random() * n); } while (i === not); return i; };
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
@@ -1167,10 +1189,20 @@
     if (docked && bar.parentElement !== $('side')) $('side').appendChild(bar);
     if (!docked && bar.parentElement !== document.body) document.body.insertBefore(bar, $('toast'));
     bar.classList.toggle('docked', docked);
+    placeLightOpts();
     if (typeof setMini === 'function') setMini(docked ? false : true, false);
     document.body.classList.toggle('has-bar', !bar.hidden && !docked);
   }
   dockMq.addEventListener('change', dockBar);
+  // computers: «Как светиться» sits in its own card right under the player
+  const lightOpts = document.querySelector('.music-opts');
+  placeLightOpts = () => {
+    const desk = dockMq.matches, card = $('lightCard'), side = $('side');
+    const home = desk ? card : $('p-music');
+    if (lightOpts.parentElement !== home) home.appendChild(lightOpts);
+    card.hidden = !desk || ($('bar').hidden && $('p-music').hidden);
+    if (desk && card.previousElementSibling !== $('bar') && $('bar').parentElement === side) side.appendChild(card);
+  };
 
   // phones: the player lives as a slim pill and expands on tap; it folds back on tab switch, scroll or a tap elsewhere
   let barMini = true, yAtExpand = 0;
@@ -1213,7 +1245,8 @@
   function refreshBar() {
     const p = active && P[active];
     const show = !!(p && p.has());
-    $('bar').hidden = !show; document.body.classList.toggle('has-bar', show && !dockMq.matches);
+    if ($('bar').hidden === show) { $('bar').hidden = !show; placeLightOpts(); }
+    document.body.classList.toggle('has-bar', show && !dockMq.matches);
     if (!show) { setAmbientArt(''); return; }
     $('barSync').hidden = !(active === 'sc' && sc.playing && !tabSrc && canCapture && wave.failed);
     $('barTitle').textContent = p.title();
@@ -1278,8 +1311,9 @@
   for (const id of ['sens', 'smooth']) {
     const el = $(id), v = store.get(id, null);
     if (v !== null) { el.value = v; fillRange(el); }
-    $(id + 'Val').textContent = el.value;
-    el.addEventListener('input', e => { $(id + 'Val').textContent = e.target.value; store.set(id, +e.target.value); });
+    const paint = () => id === 'sens' ? setBassCutoff() : ($(id + 'Val').textContent = el.value);
+    paint();
+    el.addEventListener('input', e => { paint(); store.set(id, +e.target.value); });
   }
 
   /* ---------- local files ---------- */
@@ -1304,7 +1338,7 @@
     if (!tracks.length) return;
     cur = (i + tracks.length) % tracks.length;
     ensureCtx();
-    if (!mediaSrc) { mediaSrc = actx.createMediaElementSource(audio); mediaSrc.connect(actx.destination); mediaSrc.connect(analyser); }
+    if (!mediaSrc) { mediaSrc = actx.createMediaElementSource(audio); mediaSrc.connect(actx.destination); mediaSrc.connect(bus); }
     setActive('file');
     audio.src = tracks[cur].url;
     audio.loop = repeat === 'one';
@@ -1642,21 +1676,24 @@
     if (!analyser) { if (scDirect()) ensureCtx(); else return; }
     waveInfo();
     const wantTab = !!tabSrc && active === 'sc' && sc.playing;
-    if (wantTab !== tabLinked) { try { wantTab ? tabSrc.connect(analyser) : tabSrc.disconnect(analyser); } catch {} tabLinked = wantTab; }
+    if (wantTab !== tabLinked) { try { wantTab ? tabSrc.connect(bus) : tabSrc.disconnect(bus); } catch {} tabLinked = wantTab; }
     if (!tabSrc) tabLinked = false;
     const wantMic = !!micSrc;
-    if (wantMic !== micLinked) { try { wantMic ? micSrc.connect(analyser) : micSrc.disconnect(analyser); } catch {} micLinked = wantMic; }
+    if (wantMic !== micLinked) { try { wantMic ? micSrc.connect(bus) : micSrc.disconnect(bus); } catch {} micLinked = wantMic; }
     if (!micSrc) micLinked = false;
     const run = wantMic || wantTab || (active === 'file' && !audio.paused) || scDirect();
     run ? startLoop() : stopLoop();
   }
 
-  let freq, bassAvg = 0, loudAvg = 0, lastBeat = 0, lastSend = 0, level = 0, hue = 0;
+  let freq, loudAvg = 0, lastBeat = 0, lastSend = 0, level = 0, hue = 0;
+  // bass-band onset detector: rms of the filtered band, compared with the last ~90 ms and with the last ~1.5 s
+  const bd = { prev: [], ratios: [], peak: 0 };
+  let lastTick = 0;
   function startLoop() {
     if (raf) return;
     stopAutoFx();
     freq = new Uint8Array(analyser.frequencyBinCount);
-    bassAvg = 0; loudAvg = 0; level = 0; hue = hueTarget = sel.h; lastBeatNo = -1;
+    loudAvg = 0; level = 0; bd.prev = []; bd.ratios = []; bd.peak = 0; lastTick = 0; hue = hueTarget = sel.h; lastBeatNo = -1;
     setNow('music');
     raf = 1; startClock();
     wake(true);
@@ -1674,7 +1711,7 @@
   let clockNode = null, clockTimer = 0, clockReady = null;
   const CLOCK_SRC = `class LentaClock extends AudioWorkletProcessor {
     constructor() { super(); this.n = 0; }
-    process() { this.n += 128; if (this.n >= 1024) { this.n = 0; this.port.postMessage(0); } return true; }
+    process() { this.n += 128; if (this.n >= 512) { this.n = 0; this.port.postMessage(0); } return true; }
   }
   registerProcessor('lenta-clock', LentaClock);`;
   function startClock() {
@@ -1686,9 +1723,9 @@
         clockNode = new AudioWorkletNode(actx, 'lenta-clock', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
         clockNode.port.onmessage = tick;
         clockNode.connect(actx.destination);          // outputs silence; keeps the node running
-      }).catch(() => { if (raf && !clockTimer) clockTimer = setInterval(tick, 25); });
-    } else clockTimer = setInterval(tick, 25);
-    setTimeout(() => { if (raf && actx.state !== 'running' && !clockTimer) clockTimer = setInterval(tick, 25); }, 600);
+      }).catch(() => { if (raf && !clockTimer) clockTimer = setInterval(tick, 12); });
+    } else clockTimer = setInterval(tick, 12);
+    setTimeout(() => { if (raf && actx.state !== 'running' && !clockTimer) clockTimer = setInterval(tick, 12); }, 600);
   }
   function stopClock() {
     if (clockNode) { clockNode.port.onmessage = null; clockNode.disconnect(); clockNode = null; }
@@ -1740,25 +1777,32 @@
       if (beat) lastBeat = t;
     } else {
     analyser.getByteFrequencyData(freq);
-    const hz = actx.sampleRate / analyser.fftSize;
-    const b0 = Math.max(1, Math.round(40 / hz)), b1 = Math.round(160 / hz), l1 = Math.round(8000 / hz);
-    let bass = 0; for (let i = b0; i <= b1; i++) bass += freq[i]; bass /= (b1 - b0 + 1);
+    const l1 = Math.round(8000 / (actx.sampleRate / analyser.fftSize));
     let loud = 0; for (let i = 1; i <= l1; i++) loud += freq[i]; loud /= l1;
-
-    bassAvg = bassAvg ? bassAvg * 0.95 + bass * 0.05 : bass;
-    loudAvg = loudAvg ? loudAvg * 0.98 + loud * 0.02 : loud;
-    const k = 1.55 - sensV * 0.045;             // 1 → 1.5, 10 → 1.1
-    beat = bass > bassAvg * k && bass > 70 && t - lastBeat > 220;
-    if (beat) lastBeat = t;
+    loudAvg = loudAvg ? loudAvg * 0.99 + loud * 0.01 : loud;
     body = clamp(loud / Math.max(loudAvg * 1.6, 1), 0, 1);
+
+    bassAn.getFloatTimeDomainData(bassBuf);
+    let e = 0; for (let i = 0; i < bassBuf.length; i++) e += bassBuf[i] * bassBuf[i];
+    e = Math.sqrt(e / bassBuf.length);
+    bd.peak = Math.max(e, bd.peak * 0.9985);                        // loudest kick of the last few seconds
+    const before = bd.prev.length ? bd.prev.reduce((a, b) => a + b, 0) / bd.prev.length : e;
+    bd.prev.push(e); if (bd.prev.length > 8) bd.prev.shift();
+    const r = e / Math.max(before, 1e-4);                           // how sharply the bass just rose
+    const rs = bd.ratios, m = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : 1;
+    const sd = rs.length ? Math.sqrt(rs.reduce((a, b) => a + (b - m) * (b - m), 0) / rs.length) : 0;
+    rs.push(r); if (rs.length > 140) rs.shift();
+    beat = r > Math.max(1.25, m + 1.2 * sd) && e > bd.peak * 0.3 && e > 0.004 && t - lastBeat > 250;
+    if (beat) { lastBeat = t; beatPeak = 0.45 + 0.55 * clamp(e / Math.max(bd.peak, 1e-4), 0, 1); }
     }
     const sm = +$('smooth').value;                                  // 1 = резко … 10 = плавно
-    if (mode === 'strobe') level = beat ? 1 : level * 0.72;
-    else level = beat ? Math.max(level, beatPeak) : Math.max(level * (0.86 + sm * 0.011), 0.12 + body * 0.45);
+    const dk = clamp(lastTick ? (t - lastTick) / 21.3 : 1, 0.2, 4); lastTick = t;   // decays below are tuned per 21.3 ms
+    if (mode === 'strobe') level = beat ? 1 : level * Math.pow(0.72, dk);
+    else level = beat ? Math.max(level, beatPeak) : Math.max(level * Math.pow(0.86 + sm * 0.011, dk), 0.12 + body * 0.45);
     if (mode === 'rainbow') {
       if (beat) hueTarget += 64 - sm * 4.4;                         // 1 → 60° за бит, 10 → 20°
-      hueTarget += 0.12;
-      hue += (hueTarget - hue) * (0.24 - sm * 0.019);               // colour glides instead of jumping
+      hueTarget += 0.12 * dk;
+      hue += (hueTarget - hue) * (1 - Math.pow(1 - (0.24 - sm * 0.019), dk));   // colour glides instead of jumping
       if (hue > 1e5) { hue -= 36000; hueTarget -= 36000; }
     }
 
