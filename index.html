@@ -404,14 +404,19 @@
   .light-card .music-opts { margin-top: 0; padding-top: 0; border-top: 0; }
   .music-opts .field + .field { margin-top: 4px; }
 
-  /* tabs: one pill slides to the chosen tab; the new panel glides in from the side it came from */
-  [role=tablist].has-pill [role=tab][aria-selected=true] { background: none; box-shadow: none; }
-  [role=tab] { position: relative; z-index: 1; transition: color 200ms ease; }
-  .tab-pill { position: absolute; left: 0; top: 0; border-radius: 17px; pointer-events: none;
+  /* every switcher (tabs, segmented controls): one pill glides to the chosen option */
+  :root { --ease-glide: cubic-bezier(0.22, 1, 0.36, 1); }
+  .seg { position: relative; }
+  [role=tablist].has-pill [role=tab][aria-selected=true], .seg.has-pill button[aria-pressed=true] { background: none; box-shadow: none; }
+  [role=tab], .seg button { position: relative; z-index: 1; transition: color 360ms ease; }
+  .slide-pill { position: absolute; left: 0; top: 0; pointer-events: none;
     background: rgba(255,255,255,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.2);
-    transition: transform 380ms cubic-bezier(0.32, 0.72, 0, 1); }
-  .tab-pill.no-anim { transition: none; }
-  @media (prefers-reduced-motion: reduce) { .tab-pill { transition-duration: 0ms; } }
+    transition: transform 560ms var(--ease-glide), width 560ms var(--ease-glide); }
+  [role=tablist] > .slide-pill { border-radius: 17px; }
+  .seg > .slide-pill { border-radius: 10px; }
+  .slide-pill.no-anim { transition: none; }
+  .chips button, .days button, .favs button { transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease, transform 160ms var(--ease-out); }
+  @media (prefers-reduced-motion: reduce) { .slide-pill { transition-duration: 0ms; } }
   .check input, .days button { accent-color: #fff; }
   #toast { background: rgba(40,40,46,.72); color: #fff; border: 1px solid rgba(255,255,255,.14);
     -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border-radius: 18px; }
@@ -967,35 +972,59 @@
 
   let collapsePlayer = null, placeLightOpts = null;
   /* ================= Tabs ================= */
-  const tabs = [...document.querySelectorAll('[role=tab]')];
-  const tablist = tabs[0].parentElement, pill = document.createElement('span');
-  pill.className = 'tab-pill no-anim'; pill.setAttribute('aria-hidden', 'true');
-  tablist.prepend(pill); tablist.classList.add('has-pill');
+  /* ---------- switch motion: a gliding pill in every switcher, content that glides in, followers that slide ---------- */
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  function placePill(anim) {
-    const t = tabs.find(x => x.getAttribute('aria-selected') === 'true') || tabs[0];
-    pill.classList.toggle('no-anim', !anim);
-    Object.assign(pill.style, { width: t.offsetWidth + 'px', height: t.offsetHeight + 'px', top: t.offsetTop + 'px',
-      transform: `translateX(${t.offsetLeft}px)` });
+  const GLIDE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  // the pill follows whichever option is selected, however it got selected (click, code, restore)
+  function addPill(box, isOn) {
+    const pill = document.createElement('span');
+    pill.className = 'slide-pill no-anim'; pill.setAttribute('aria-hidden', 'true');
+    box.prepend(pill); box.classList.add('has-pill');
+    const opts = () => [...box.children].filter(c => c !== pill);
+    const place = anim => {
+      const t = opts().find(isOn);
+      if (!t || !t.offsetWidth) { pill.style.opacity = t ? '' : '0'; return; }
+      pill.classList.toggle('no-anim', !anim || pill.style.opacity === '0');
+      Object.assign(pill.style, { opacity: '', width: t.offsetWidth + 'px', height: t.offsetHeight + 'px', top: t.offsetTop + 'px',
+        transform: `translateX(${t.offsetLeft}px)` });
+    };
+    new ResizeObserver(() => place(false)).observe(box);
+    new MutationObserver(() => place(true)).observe(box, { subtree: true, attributes: true, attributeFilter: ['aria-pressed', 'aria-selected'] });
+    place(false);
   }
-  new ResizeObserver(() => placePill(false)).observe(tablist);
+  // new content appears from the side the user moved to (dir −1 / 1), or from below (0)
+  function glideIn(el, dir = 0) {
+    if (!el || el.hidden) return;
+    el.getAnimations().forEach(a => a.cancel());
+    el.animate(reduceMotion.matches ? [{ opacity: 0 }, { opacity: 1 }] : [
+      { opacity: 0, transform: dir ? `translateX(${dir * 26}px)` : 'translateY(10px)', filter: 'blur(4px)' },
+      { opacity: 1, transform: 'none', filter: 'blur(0)' }],
+      { duration: reduceMotion.matches ? 200 : 520, easing: GLIDE });
+  }
+  // whatever sits below changing content slides to its new place instead of jumping
+  function follow(els, change) {
+    els = els.filter(Boolean);
+    const before = els.map(e => e.getBoundingClientRect().top);
+    change();
+    if (reduceMotion.matches) return;
+    els.forEach((e, i) => {
+      const d = before[i] - e.getBoundingClientRect().top;
+      if (Math.abs(d) < 1 || !e.offsetParent) return;
+      e.animate([{ transform: `translateY(${d}px)` }, { transform: 'none' }], { duration: 520, easing: GLIDE });
+    });
+  }
+
+  const tabs = [...document.querySelectorAll('[role=tab]')];
+  addPill(tabs[0].parentElement, t => t.getAttribute('aria-selected') === 'true');
   function selectTab(tab) {
     if (typeof collapsePlayer === 'function') collapsePlayer();
     const from = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true'), to = tabs.indexOf(tab);
-    tabs.forEach(t => {
+    follow([document.querySelector('.content > details')], () => tabs.forEach(t => {
       const on = t === tab;
       t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
       $(t.getAttribute('aria-controls')).hidden = !on;
-    });
-    placePill(true);
-    if (from !== to && from >= 0) {
-      const panel = $(tab.getAttribute('aria-controls')), dir = to > from ? 1 : -1;
-      panel.getAnimations().forEach(a => a.cancel());
-      panel.animate(reduceMotion.matches
-        ? [{ opacity: 0 }, { opacity: 1 }]
-        : [{ opacity: 0, transform: `translateX(${dir * 18}px)` }, { opacity: 1, transform: 'none' }],
-        { duration: reduceMotion.matches ? 160 : 320, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' });
-    }
+    }));
+    if (from !== to && from >= 0) glideIn($(tab.getAttribute('aria-controls')), to > from ? 1 : -1);
     if (tab.id === 't-color') drawWheel();
     if (typeof placeLightOpts === 'function') placeLightOpts();
   }
@@ -1006,6 +1035,8 @@
       if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; selectTab(n); n.focus(); }
     };
   });
+
+  document.querySelectorAll('.seg').forEach(seg => addPill(seg, b => b.getAttribute('aria-pressed') === 'true'));
 
   /* ================= Color wheel ================= */
   function hsv2rgb(h, s, v) {
@@ -1235,7 +1266,9 @@
     const desk = dockMq.matches, card = $('lightCard'), side = $('side');
     const home = desk ? card : $('p-music');
     if (lightOpts.parentElement !== home) home.appendChild(lightOpts);
+    const wasHidden = card.hidden;
     card.hidden = !desk || ($('bar').hidden && $('p-music').hidden);
+    if (wasHidden && !card.hidden) glideIn(card, 0);
     if (desk && card.previousElementSibling !== $('bar') && $('bar').parentElement === side) side.appendChild(card);
   };
 
@@ -1331,9 +1364,13 @@
 
   /* ---------- source switch ---------- */
   function setSource(s) {
+    const order = ['file', 'sc', 'mic'], from = order.indexOf(source), to = order.indexOf(s);
     source = s;
     document.querySelectorAll('[data-src]').forEach(b => b.setAttribute('aria-pressed', b.dataset.src === s));
-    $('fileArea').hidden = s !== 'file'; $('scArea').hidden = s !== 'sc'; $('micArea').hidden = s !== 'mic';
+    follow([document.querySelector('#p-music > .music-opts'), document.querySelector('.content > details')], () => {
+      $('fileArea').hidden = s !== 'file'; $('scArea').hidden = s !== 'sc'; $('micArea').hidden = s !== 'mic';
+    });
+    if (from !== to) glideIn($({ file: 'fileArea', sc: 'scArea', mic: 'micArea' }[s]), to > from ? 1 : -1);
     if (s !== 'mic') stopMic();
     if (s === 'mic' && active) P[active].pause();
   }
