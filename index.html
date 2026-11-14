@@ -1493,13 +1493,12 @@
   async function openSc(url, autoplay) {
     try { await loadScApi(); } catch { scApi = null; toast('Не удалось загрузить SoundCloud. Проверь интернет'); return; }
     // the same playlist again: just play it, don't reload and restart it
-    if (url === sc.url && sc.widget) {
-      if (!sc.ready || !sc.sounds.length) { sc.autoplay = sc.autoplay || !!autoplay; return; }   // still loading it
+    if (url === sc.url && sc.widget && sc.ready && sc.sounds.length) {
       if (autoplay && !sc.playing) P.sc.toggle();
       return;
     }
     if (sc.widget && sc.ready && sc.playing) sc.widget.pause();
-    clearTimeout(sc.guard); clearTimeout(sc.after); clearTimeout(sc.retry);
+    clearTimeout(sc.guard); clearTimeout(sc.after); clearTimeout(sc.retry); clearTimeout(sc.loadTimer);
     // everything the previous playlist still has in flight is ignored from here on
     Object.assign(sc, { url, ready: false, loaded: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, autoplay: !!autoplay, gen: sc.gen + 1 });
     Object.assign(wave, { key: null, n: null, onset: null, tempo: null, ready: false, failed: false });
@@ -1511,12 +1510,19 @@
       if (sc.url === url) { sc.title = upd.title; sc.cover = upd.art; renderPlHead(); }
     });
     $('scNow').hidden = false; renderPlHead(); renderPl(); renderLib();
-    const f = $('scFrame');
-    if (!sc.widget) {
-      f.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(url) + '&' +
-        Object.entries(WIDGET_OPTS).map(([k, v]) => k + '=' + v).join('&');
-      bindWidget(f);
-    } else sc.widget.load(url, WIDGET_OPTS);
+    // a fresh hidden player per playlist: widget.load() on the old one doesn't reliably report READY again,
+    // which left the playlist «Загрузка…» forever
+    const old = $('scFrame'), f = old.cloneNode(false);
+    f.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(url) + '&' +
+      Object.entries(WIDGET_OPTS).map(([k, v]) => k + '=' + v).join('&');
+    old.replaceWith(f);
+    bindWidget(f);
+    const gen = sc.gen;
+    sc.loadTimer = setTimeout(() => {
+      if (gen !== sc.gen || sc.ready) return;
+      $('plSub').textContent = 'Не загрузилось. Нажми на плейлист ещё раз';
+      toast('SoundCloud не ответил. Проверь интернет и нажми на плейлист ещё раз');
+    }, 15000);
   }
 
   // the widget fills a playlist in gradually: first maybe nothing, then ids, then full track data
@@ -1561,10 +1567,11 @@
 
   function bindWidget(f) {
     const W = window.SC.Widget, E = W.Events;
-    sc.widget = W(f);
-    // fires again after every widget.load(); events that arrive before it belong to the old playlist
-    sc.widget.bind(E.READY, () => { if (sc.ready) return; sc.ready = true; renderPlHead(); loadSounds(0, sc.gen); });
-    sc.widget.bind(E.PLAY, () => {
+    const w = W(f); sc.widget = w;
+    // events from a player that has since been replaced are ignored
+    const on = (ev, fn) => w.bind(ev, d => { if (w === sc.widget) fn(d); });
+    on(E.READY, () => { if (sc.ready) return; sc.ready = true; clearTimeout(sc.loadTimer); renderPlHead(); loadSounds(0, sc.gen); });
+    on(E.PLAY, () => {
       if (!sc.ready) return;
       const gen = sc.gen;
       sc.playing = true; clearTimeout(sc.guard); clearTimeout(sc.after);
@@ -1583,8 +1590,8 @@
       sc.widget.getDuration(d => { if (gen === sc.gen) { sc.dur = d; refreshBar(); } });
       renderPlHead(); refreshBar(); refreshLoop();
     });
-    sc.widget.bind(E.PAUSE, () => { if (!sc.ready) return; sc.playing = false; renderPlHead(); renderPl(); refreshBar(); refreshLoop(); });
-    sc.widget.bind(E.FINISH, () => {
+    on(E.PAUSE, () => { if (!sc.ready) return; sc.playing = false; renderPlHead(); renderPl(); refreshBar(); refreshLoop(); });
+    on(E.FINISH, () => {
       if (!sc.ready) return;
       sc.playing = false;
       const i = pickNext(sc.index, sc.sounds.length, true);
@@ -1600,7 +1607,7 @@
       if (shuffle || i !== sc.index + 1) scPlay(i);
       else sc.after = setTimeout(() => { if (!sc.playing) scPlay(i); }, 1500);
     });
-    sc.widget.bind(E.PLAY_PROGRESS, d => {
+    on(E.PLAY_PROGRESS, d => {
       if (!sc.ready) return;
       sc.pos = d.currentPosition; sc.posAt = performance.now();
       // repeat one: rewind just before the end so the widget never moves on
@@ -1610,7 +1617,7 @@
       }
       if (active === 'sc') refreshBar();
     });
-    sc.widget.bind(E.ERROR, () => toast('SoundCloud не открыл ссылку. Плейлист должен быть открытым или по секретной ссылке'));
+    on(E.ERROR, () => toast('SoundCloud не открыл ссылку. Плейлист должен быть открытым или по секретной ссылке'));
   }
 
   function renderPlHead() {
