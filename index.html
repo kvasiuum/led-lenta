@@ -1141,7 +1141,7 @@
   }
 
   /* ---------- players: local files and SoundCloud share one bottom bar ---------- */
-  const sc = { widget: null, ready: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, url: '', title: '', cover: '', autoplay: false, guard: 0, after: 0 };
+  const sc = { widget: null, ready: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, url: '', title: '', cover: '', autoplay: false, guard: 0, after: 0, gen: 0 };
   const art300 = u => u ? u.replace('-large.', '-t300x300.') : '';
   const soundArt = s => s ? (s.artwork_url || (s.user && s.user.avatar_url) || '') : '';
   const scSound = () => sc.sounds[sc.index] || null;
@@ -1492,8 +1492,17 @@
   const WIDGET_OPTS = { auto_play: false, visual: false, show_comments: false, show_reposts: false, hide_related: true, show_teaser: false, buying: false, sharing: false, download: false };
   async function openSc(url, autoplay) {
     try { await loadScApi(); } catch { scApi = null; toast('Не удалось загрузить SoundCloud. Проверь интернет'); return; }
-    if (active === 'sc' && sc.playing) sc.widget.pause();
-    Object.assign(sc, { url, ready: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, autoplay: !!autoplay });
+    // the same playlist again: just play it, don't reload and restart it
+    if (url === sc.url && sc.widget) {
+      if (!sc.ready || !sc.sounds.length) { sc.autoplay = sc.autoplay || !!autoplay; return; }   // still loading it
+      if (autoplay && !sc.playing) P.sc.toggle();
+      return;
+    }
+    if (sc.widget && sc.ready && sc.playing) sc.widget.pause();
+    clearTimeout(sc.guard); clearTimeout(sc.after); clearTimeout(sc.retry);
+    // everything the previous playlist still has in flight is ignored from here on
+    Object.assign(sc, { url, ready: false, loaded: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, autoplay: !!autoplay, gen: sc.gen + 1 });
+    Object.assign(wave, { key: null, n: null, onset: null, tempo: null, ready: false, failed: false });
     const it = saveToLib(url);
     sc.title = it.title; sc.cover = it.art;
     fetchMeta(url).then(m => {
@@ -1510,14 +1519,21 @@
     } else sc.widget.load(url, WIDGET_OPTS);
   }
 
-  function loadSounds(tries, first) {
+  // the widget fills a playlist in gradually: first maybe nothing, then ids, then full track data
+  function loadSounds(tries, gen) {
+    if (gen !== sc.gen) return;
     sc.widget.getSounds(list => {
-      sc.sounds = list || [];
+      if (gen !== sc.gen) return;                                 // a newer playlist was opened meanwhile
+      list = list || [];
+      if (!list.length && tries < 24) { sc.retry = setTimeout(() => loadSounds(tries + 1, gen), 500); return; }
+      sc.sounds = list.map((s, i) => (!s.title && sc.sounds[i] && sc.sounds[i].title) ? sc.sounds[i] : s);
+      sc.loaded = true;
       renderPl(); renderPlHead(); refreshBar();
-      if (first && sc.autoplay && sc.sounds.length) { sc.autoplay = false; scPlay(shuffle ? rnd(sc.sounds.length, -1) : 0); }
+      if (sc.autoplay && sc.sounds.length) { sc.autoplay = false; scPlay(shuffle ? rnd(sc.sounds.length, -1) : 0); }
       const it = lib.find(l => l.url === sc.url);
-      if (it && !it.art && sc.sounds[0]) saveToLib(sc.url, { art: art300(soundArt(sc.sounds[0])) });
-      if (sc.sounds.some(s => !s.title) && tries < 12) setTimeout(() => loadSounds(tries + 1), 1500);
+      if (it && !it.art && sc.sounds[0] && soundArt(sc.sounds[0])) saveToLib(sc.url, { art: art300(soundArt(sc.sounds[0])) });
+      if (sc.index >= 0 && !wave.key && !wave.ready) loadWave(sc.sounds[sc.index]);
+      if (sc.sounds.some(s => !s.title) && tries < 24) sc.retry = setTimeout(() => loadSounds(tries + 1, gen), 1500);
     });
   }
 
@@ -1526,31 +1542,50 @@
     ensureCtx();
     sc.widget.skip(i); sc.widget.play();
     clearTimeout(sc.guard);
+    const gen = sc.gen;
+    // a slow network can take a few seconds to start; only call it blocked if the widget really stayed paused
     sc.guard = setTimeout(() => {
-      if (sc.playing) return;
-      showWidget(true);
-      toast('Браузер не дал включить звук. Нажми play в плеере SoundCloud');
-    }, 3000);
+      if (sc.playing || gen !== sc.gen) return;
+      sc.widget.isPaused(paused => {
+        if (!paused || sc.playing || gen !== sc.gen) return;
+        showWidget(true);
+        toast('Браузер не дал включить звук. Нажми play в плеере SoundCloud');
+      });
+    }, 7000);
   }
   function showWidget(on) {
     $('scFrame').classList.toggle('show', on);
     $('scShowWidget').textContent = on ? 'Скрыть плеер SoundCloud' : 'Показать плеер SoundCloud';
   }
-  $('scShowWidget').onclick = () => showWidget(!$('scFrame').classList.contains('show'));
+  $('scShowWidget').onclick = () => { sc.userShown = !$('scFrame').classList.contains('show'); showWidget(sc.userShown); };
 
   function bindWidget(f) {
     const W = window.SC.Widget, E = W.Events;
     sc.widget = W(f);
-    sc.widget.bind(E.READY, () => { sc.ready = true; loadSounds(0, true); });
+    // fires again after every widget.load(); events that arrive before it belong to the old playlist
+    sc.widget.bind(E.READY, () => { if (sc.ready) return; sc.ready = true; renderPlHead(); loadSounds(0, sc.gen); });
     sc.widget.bind(E.PLAY, () => {
+      if (!sc.ready) return;
+      const gen = sc.gen;
       sc.playing = true; clearTimeout(sc.guard); clearTimeout(sc.after);
+      if (sc.widget && $('scFrame').classList.contains('show') && !sc.userShown) showWidget(false);
       setActive('sc');
-      sc.widget.getCurrentSoundIndex(i => { sc.index = i; renderPl(); refreshBar(); loadWave(sc.sounds[i]); });
-      sc.widget.getDuration(d => { sc.dur = d; refreshBar(); });
+      sc.widget.getCurrentSoundIndex(i => {
+        if (gen !== sc.gen) return;
+        sc.index = i; renderPl(); refreshBar();
+        // the full data of the playing track (a long playlist hands out only ids for later tracks at first)
+        sc.widget.getCurrentSound(s => {
+          if (gen !== sc.gen || sc.index !== i || !s) return;
+          if (s.title && (!sc.sounds[i] || !sc.sounds[i].title || !sc.sounds[i].waveform_url)) { sc.sounds[i] = s; renderPl(); renderPlHead(); refreshBar(); }
+          loadWave(s.waveform_url ? s : sc.sounds[i]);
+        });
+      });
+      sc.widget.getDuration(d => { if (gen === sc.gen) { sc.dur = d; refreshBar(); } });
       renderPlHead(); refreshBar(); refreshLoop();
     });
-    sc.widget.bind(E.PAUSE, () => { sc.playing = false; renderPlHead(); renderPl(); refreshBar(); refreshLoop(); });
+    sc.widget.bind(E.PAUSE, () => { if (!sc.ready) return; sc.playing = false; renderPlHead(); renderPl(); refreshBar(); refreshLoop(); });
     sc.widget.bind(E.FINISH, () => {
+      if (!sc.ready) return;
       sc.playing = false;
       const i = pickNext(sc.index, sc.sounds.length, true);
       if (i === null) { renderPlHead(); renderPl(); refreshBar(); refreshLoop(); return; }
@@ -1566,6 +1601,7 @@
       else sc.after = setTimeout(() => { if (!sc.playing) scPlay(i); }, 1500);
     });
     sc.widget.bind(E.PLAY_PROGRESS, d => {
+      if (!sc.ready) return;
       sc.pos = d.currentPosition; sc.posAt = performance.now();
       // repeat one: rewind just before the end so the widget never moves on
       if (repeat === 'one' && sc.dur > 2000 && sc.pos >= sc.dur - 700 && !sc.rewinding) {
@@ -1584,7 +1620,7 @@
     $('plTitle').textContent = sc.title || 'Плейлист';
     const n = sc.sounds.length;
     const total = sc.sounds.reduce((a, s) => a + (s.duration || 0), 0);
-    $('plSub').textContent = !sc.ready ? 'Загрузка…'
+    $('plSub').textContent = !sc.ready || (!n && !sc.loaded) ? 'Загрузка…'
       : n ? `${n} ${plural(n, 'трек', 'трека', 'треков')}` + (total ? ` · ${Math.round(total / 60000)} мин` : '') : 'Нет треков';
     $('plPlay').innerHTML = sc.playing
       ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>Пауза'
@@ -1689,9 +1725,10 @@
   async function loadWave(s) {
     const key = s && (s.id || s.waveform_url || s.title);
     if (!s || wave.key === key) return;
-    Object.assign(wave, { key, n: null, onset: null, ready: false, failed: false });
     let u = s.waveform_url;
-    if (!u) { wave.failed = true; waveInfo(); refreshLoop(); return; }
+    // no data yet for this track: fall back for now, but let a later call (with full data) try again
+    if (!u) { Object.assign(wave, { key: null, n: null, onset: null, tempo: null, ready: false, failed: true }); waveInfo(); refreshLoop(); return; }
+    Object.assign(wave, { key, n: null, onset: null, tempo: null, ready: false, failed: false });
     u = u.replace(/\.png(\?.*)?$/, '.json');
     try {
       const j = await (await fetch(u)).json();
