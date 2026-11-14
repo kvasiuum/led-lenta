@@ -1,0 +1,1935 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Лента">
+<meta name="theme-color" content="#000000">
+<title>Лента</title>
+<style>
+  :root {
+    --bg: #000; --surface: #101113; --surface-2: #1a1b1e; --surface-3: #25262b; --line: #222327;
+    --text: #eeeef0; --muted: #9a9ca4; --faint: #6c6e76;
+    --accent: #5b93ff; --on-accent: #fff; --ok: #3fb950; --bad: #ef6b63;
+    --r-lg: 18px; --r-md: 12px; --r-sm: 9px;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); min-height: 100dvh;
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; touch-action: manipulation; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [hidden] { display: none !important; }
+
+  /* ---------- layout ---------- */
+  .app { max-width: 480px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left)); display: grid; gap: 16px; }
+  @media (min-width: 900px) {
+    .app { max-width: 1040px; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; padding-top: 40px; }
+    .side { position: sticky; top: 24px; }
+  }
+
+  /* ---------- side: device ---------- */
+  .side { display: grid; gap: 16px; }
+  .device { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; }
+  .device-head { display: flex; align-items: center; gap: 12px; }
+  .device-head h1 { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; margin: 0; }
+  .device-head .titles { flex: 1; min-width: 0; }
+  #status { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  #status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  #status.on { color: var(--text); } #status.on::before { background: var(--ok); }
+  #status.err { color: var(--bad); } #status.err::before { background: var(--bad); }
+
+  .btn { min-height: 44px; padding: 0 18px; border-radius: var(--r-md); border: 1px solid var(--line);
+    background: var(--surface-2); font-weight: 500; transition: background-color 150ms ease, transform 140ms var(--ease-out); }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  @media (hover: hover) and (pointer: fine) {
+    .btn:hover { background: var(--surface-3); } .btn.primary:hover { background: #4a86f5; }
+  }
+  .power { width: 52px; height: 52px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2);
+    display: grid; place-items: center; color: var(--muted); transition: background-color 150ms ease, color 150ms ease, transform 140ms var(--ease-out); }
+  .power:active { transform: scale(0.94); }
+  .power[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .power svg { width: 22px; height: 22px; }
+  .icon-round { width: 44px; height: 44px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: none; color: var(--muted);
+    display: grid; place-items: center; padding: 0; transition: color 150ms ease, background-color 150ms ease; }
+  .icon-round svg { width: 20px; height: 20px; }
+  @media (hover: hover) and (pointer: fine) { .icon-round:hover { color: var(--text); background: var(--surface-2); } }
+  @media (display-mode: standalone), (display-mode: fullscreen) { #fsBtn { display: none !important; } }
+
+  /* the strip preview: depicts what the LEDs show right now */
+  .strip { --c: rgb(255,0,0); --l: 1; margin: 22px 0 4px; height: 30px; padding: 0 12px; border-radius: 15px;
+    background: #08090a; border: 1px solid #1f2024; display: flex; align-items: center; justify-content: space-between; }
+  .strip i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); opacity: calc(0.25 + var(--l) * 0.75);
+    box-shadow: 0 0 calc(4px + var(--l) * 10px) calc(var(--l) * 2px) var(--c); }
+  .strip.fx i { background: hsl(var(--h) 95% 60%); box-shadow: 0 0 10px 1px hsl(var(--h) 95% 55%); opacity: 1; }
+  .strip.off i { background: #26282d; box-shadow: none; opacity: 1; }
+  .ios-help { margin-top: 18px; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface-2); font-size: 14px; color: var(--text); }
+  .ios-help p { margin: 0; }
+  .ios-help ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; color: var(--muted); }
+  .ios-help a { color: var(--accent); font-weight: 500; }
+
+  .field + .field { margin-top: 18px; }
+  .label { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); font-size: 14px; margin: 0 0 6px; }
+  .num { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 500; }
+  .device .bright-field { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+
+  /* range */
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: none; --c: var(--accent); --p: 50%; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px;
+    background: linear-gradient(to right, var(--c) var(--p), var(--surface-3) var(--p)); }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--surface-3); }
+  input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--c); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: 50%;
+    background: #fff; border: 0; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  #bright { --c: rgb(255,0,0); }
+
+  /* ---------- tabs + panels ---------- */
+  .content { display: grid; gap: 14px; min-width: 0; }
+  [role=tablist] { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  [role=tab] { min-height: 44px; border: 0; border-radius: 10px; background: none; color: var(--muted); font-weight: 500;
+    display: flex; align-items: center; justify-content: center; gap: 8px; transition: background-color 150ms ease, color 150ms ease; }
+  [role=tab] svg { width: 18px; height: 18px; }
+  [role=tab][aria-selected=true] { background: var(--surface-3); color: var(--text); }
+  @media (hover: hover) and (pointer: fine) { [role=tab]:not([aria-selected=true]):hover { color: var(--text); } }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 22px 20px; }
+  .panel h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+
+  /* color */
+  .color-grid { display: grid; gap: 22px; }
+  @media (min-width: 900px) { .color-grid { grid-template-columns: 1fr 220px; align-items: center; } }
+  .wheel-wrap { position: relative; width: 100%; max-width: 360px; aspect-ratio: 1; margin: 0 auto; touch-action: none; border-radius: 50%; }
+  .wheel-wrap:focus-visible { outline-offset: 6px; }
+  #wheel { width: 100%; height: 100%; display: block; cursor: crosshair; border-radius: 50%; }
+  #knob { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%;
+    border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.4); pointer-events: none; }
+  .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+  @media (min-width: 900px) { .swatches { grid-template-columns: repeat(4, 1fr); } }
+  .sw { aspect-ratio: 1; min-height: 32px; border-radius: var(--r-sm); border: 1px solid rgba(255,255,255,.1); padding: 0; transition: transform 140ms var(--ease-out); }
+  .sw:active { transform: scale(0.92); }
+
+  /* modes */
+  .fx-head { display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; gap: 10px; }
+  .fx-head .btn { height: 56px; padding: 0; font-size: 26px; font-weight: 400; }
+  .big { text-align: center; }
+  .big b { display: block; font-size: 52px; font-weight: 650; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big small { font-size: 13px; color: var(--muted); }
+  .fx-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  .fx-tools .btn { min-width: 0; padding: 0 12px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .fx-tools svg { width: 18px; height: 18px; }
+  #fxFav[aria-pressed=true] { color: #ffcc4d; border-color: #5a4a1e; }
+  #fxFav[aria-pressed=true] svg { fill: currentColor; }
+  #fxAutoBtn[aria-pressed=true] { color: var(--accent); border-color: #2a4170; }
+  .favs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .favs button { min-width: 56px; min-height: 44px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid var(--line);
+    background: var(--surface-2); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .favs button[aria-current=true] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .divider { border: 0; border-top: 1px solid var(--line); margin: 22px 0 18px; }
+
+  /* music */
+  .seg { display: grid; grid-template-columns: repeat(var(--n, 2), 1fr); gap: 4px; padding: 4px; background: var(--bg);
+    border: 1px solid var(--line); border-radius: var(--r-md); }
+  .seg button { min-height: 40px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 15px; font-weight: 500;
+    transition: background-color 150ms ease, color 150ms ease; }
+  .seg button[aria-pressed=true] { background: var(--surface-3); color: var(--text); }
+  .file-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 14px; cursor: pointer; }
+  .file-btn svg { width: 18px; height: 18px; }
+  #tracks { list-style: none; margin: 12px 0 0; padding: 0; max-height: 220px; overflow: auto; }
+  #tracks button { width: 100%; text-align: left; min-height: 44px; padding: 8px 12px; border: 0; border-radius: var(--r-sm);
+    background: none; color: var(--muted); overflow-wrap: anywhere; font-size: 15px; }
+  #tracks button[aria-current=true] { background: var(--surface-2); color: var(--text); font-weight: 500; }
+  .url-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 14px; }
+  .url-row input { min-height: 44px; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); padding: 0 14px; }
+  #scFrame { width: 100%; height: 300px; border: 0; border-radius: var(--r-md); margin-top: 12px; background: #fff; }
+  #scSync { width: 100%; margin-top: 12px; }
+  #scSync[aria-pressed=true] { border-color: #245c32; color: var(--ok); }
+  .music-opts { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  #meter { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin-top: 14px; }
+  #meter i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--accent); }
+
+  /* settings */
+  details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 0 20px; color: var(--muted); font-size: 14px; }
+  summary { cursor: pointer; min-height: 52px; display: flex; align-items: center; color: var(--text); font-weight: 500; }
+  details[open] { padding-bottom: 16px; }
+  details .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 8px; }
+  select { min-height: 44px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 0 10px; }
+  .check { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text); }
+  .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+  #toast { position: fixed; left: 50%; bottom: 20px; z-index: 20; transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: var(--r-md); font-size: 14px; font-weight: 500;
+    max-width: calc(100% - 32px); width: max-content; transition: opacity 200ms ease, transform 200ms var(--ease-out); }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  /* soundcloud library + custom playlist view */
+  .panel .sub-h { font-size: 15px; font-weight: 600; margin: 22px 0 12px; }
+  .lib { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 12px; }
+  .tile { position: relative; min-width: 0; }
+  .tile-main { width: 100%; padding: 0; border: 0; background: none; text-align: left; display: grid; gap: 8px; }
+  .tile-art { display: grid; place-items: center; aspect-ratio: 1; border-radius: var(--r-md); background: var(--surface-2); overflow: hidden; color: var(--faint); outline: 2px solid transparent; outline-offset: 2px; transition: outline-color 150ms ease; }
+  .tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile-art svg { width: 28px; height: 28px; }
+  .tile-main[aria-current=true] .tile-art { outline-color: var(--accent); }
+  .tile-title { font-size: 14px; font-weight: 500; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .tile-x { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; border: 0; padding: 0;
+    background: rgba(0,0,0,.65); color: #fff; display: grid; place-items: center; }
+  .tile-x::before { content: ""; position: absolute; inset: -8px; }
+  .tile-x svg { width: 14px; height: 14px; }
+
+  #scNow { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .pl-head { display: grid; grid-template-columns: 112px 1fr; gap: 16px; align-items: center; }
+  .pl-art { width: 112px; height: 112px; border-radius: var(--r-md); background: var(--surface-2); overflow: hidden; display: block; }
+  .pl-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pl-meta { min-width: 0; }
+  #plTitle { font-size: 20px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.2; overflow-wrap: anywhere; }
+  #plSub { font-size: 14px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .pl-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .pl-actions .btn.primary { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px 0 14px; }
+  .pl-actions svg, .icon-btn svg { width: 18px; height: 18px; }
+  .icon-btn { width: 44px; padding: 0; display: grid; place-items: center; }
+  .sync-btn { width: 100%; margin-top: 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .sync-btn svg { width: 18px; height: 18px; }
+  .sync-btn[aria-pressed=true] { border-color: #245c32; color: var(--ok); }
+
+  .pl-tracks { list-style: none; margin: 14px 0 0; padding: 0; max-height: 420px; overflow: auto; }
+  .trk { width: 100%; display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; min-height: 56px;
+    padding: 6px 8px; border: 0; border-radius: var(--r-sm); background: none; text-align: left; transition: background-color 120ms ease; }
+  @media (hover: hover) and (pointer: fine) { .trk:hover { background: var(--surface-2); } }
+  .trk[aria-current=true] { background: var(--surface-2); }
+  .trk-art { position: relative; width: 44px; height: 44px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+  .trk-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .trk-meta { min-width: 0; display: grid; }
+  .trk-title { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trk-artist { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trk[aria-current=true] .trk-title { color: var(--accent); }
+  .trk-dur { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .eq { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: flex-end; justify-content: center; gap: 3px; padding-bottom: 13px; }
+  .trk[aria-current=true] .eq { display: flex; }
+  .eq i { width: 3px; height: 14px; background: #fff; border-radius: 1px; transform-origin: bottom; transform: scaleY(.35); }
+  .trk.playing .eq i { animation: eq 0.9s linear infinite; }
+  .trk.playing .eq i:nth-child(2) { animation-delay: -0.3s; } .trk.playing .eq i:nth-child(3) { animation-delay: -0.6s; }
+  @keyframes eq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+  @media (prefers-reduced-motion: reduce) { .trk.playing .eq i { animation: none; transform: scaleY(.8); } }
+
+  .linkish { border: 0; background: none; color: var(--muted); font-size: 13px; padding: 12px 0 0; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
+  .sc-frame { position: absolute; left: 0; bottom: 0; width: 2px; height: 2px; border: 0; opacity: 0; pointer-events: none; }
+  .sc-frame.show { position: static; width: 100%; height: 300px; opacity: 1; pointer-events: auto; border-radius: var(--r-md); margin-top: 8px; background: #fff; }
+  #p-music { position: relative; }
+
+  /* ---------- player: floating bar on phones, docked card in the side column on computers ---------- */
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: rgba(16,17,19,.9);
+    backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  @media (prefers-reduced-transparency: reduce) { #bar { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+  #bar .inner { max-width: 1040px; margin: 0 auto; display: grid; gap: 6px; position: relative; }
+  #barLevel { position: absolute; left: 0; right: 0; top: -11px; height: 2px; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+  .bar-sync { display: block; width: 100%; min-height: 40px; border: 1px solid #2a4170; border-radius: var(--r-sm); background: rgba(91,147,255,.08); color: var(--text); font-size: 14px; }
+  .bar-sync b { color: var(--accent); font-weight: 600; }
+
+  .bar-top { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; min-width: 0; }
+  #barArt { position: relative; width: 48px; height: 48px; border-radius: 8px; background: var(--surface-3); overflow: hidden;
+    display: grid; place-items: center; color: var(--muted); flex: none; }
+  #barArt svg { width: 20px; height: 20px; }
+  #barImg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #bar .meta { min-width: 0; }
+  #barTitle { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #barSub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .bar-seek { display: grid; grid-template-columns: 3.2em 1fr 3.2em; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar-seek span:last-child { text-align: right; }
+  #barSeek { height: 22px; --c: var(--text); }
+  #barSeek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; }
+  #barSeek::-moz-range-track, #barSeek::-moz-range-progress { height: 4px; }
+  #barSeek::-webkit-slider-thumb { width: 12px; height: 12px; margin-top: -4px; transition: transform 120ms ease; }
+  #barSeek::-moz-range-thumb { width: 12px; height: 12px; }
+  #barSeek:active::-webkit-slider-thumb { transform: scale(1.3); }
+  @media (hover: hover) and (pointer: fine) { #barSeek:hover { --c: var(--accent); } }
+
+  #bar .ctl { display: flex; align-items: center; justify-content: space-between; max-width: 340px; width: 100%; margin: 0 auto; }
+  #bar .ctl button { width: 44px; height: 44px; border-radius: 50%; border: 0; background: none; display: grid; place-items: center; padding: 0; color: var(--text);
+    position: relative; transition: background-color 120ms ease, transform 140ms var(--ease-out); }
+  @media (hover: hover) and (pointer: fine) { #bar .ctl button:not(#barPlay):hover { background: var(--surface-2); } }
+  #bar .ctl button:active { transform: scale(0.92); }
+  #bar .ctl #barPlay { width: 52px; height: 52px; background: var(--text); color: var(--bg); }
+  #bar svg { width: 20px; height: 20px; } #bar #barPlay svg { width: 24px; height: 24px; }
+  #bar .mode-btn { color: var(--muted); }
+  #bar .mode-btn[aria-pressed=true] { color: var(--accent); }
+  #bar .mode-btn[aria-pressed=true]::after { content: ""; position: absolute; bottom: 5px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+  #bar .mode-btn .one { display: none; position: absolute; top: 8px; right: 6px; font-size: 9px; font-weight: 700; line-height: 1; }
+  #bar .mode-btn[data-repeat=one] .one { display: block; }
+
+  /* tablet-wide floating bar: one row */
+  @media (min-width: 600px) {
+    #bar:not(.docked) .inner { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "top ctl ." "seek seek seek"; column-gap: 20px; }
+    #bar:not(.docked) .bar-top { grid-area: top; } #bar:not(.docked) .ctl { grid-area: ctl; width: auto; gap: 6px; } #bar:not(.docked) .bar-seek { grid-area: seek; }
+    #bar:not(.docked) .bar-sync { grid-column: 1 / -1; }
+  }
+  body.has-bar .app { padding-bottom: 170px; }
+  body.has-bar #toast { bottom: 176px; }
+  @media (min-width: 600px) { body.has-bar .app { padding-bottom: 140px; } body.has-bar #toast { bottom: 140px; } }
+
+  /* docked card (computer): sits under the strip card */
+  #bar.docked { position: static; z-index: auto; background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none;
+    border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; overflow: hidden; }
+  #bar.docked .inner { gap: 10px; }
+  #bar.docked #barLevel { top: -20px; left: -20px; right: -20px; }
+  #bar.docked #barArt { width: 64px; height: 64px; border-radius: 10px; }
+  #bar.docked #barTitle { font-size: 16px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+  #bar.docked .bar-seek { margin-top: 4px; }
+
+  /* tabs: 4 items; on narrow phones the icon sits above the label */
+  [role=tablist] { grid-template-columns: repeat(4, 1fr) !important; }
+  @media (max-width: 479px) {
+    [role=tab] { flex-direction: column; gap: 2px; min-height: 52px; font-size: 13px; }
+  }
+
+  /* timer */
+  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .chips button { min-height: 44px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface-2); font-weight: 500; font-variant-numeric: tabular-nums;
+    transition: background-color 120ms ease, color 120ms ease, transform 140ms var(--ease-out); }
+  .chips button:active { transform: scale(0.96); }
+  .chips button[aria-pressed=true] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .sleep-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px;
+    border-radius: var(--r-md); background: var(--surface-2); }
+  .sleep-state b { font-variant-numeric: tabular-nums; }
+  .sleep-state .btn { min-height: 36px; padding: 0 12px; font-size: 14px; }
+
+  .sched-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .sched-item { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 14px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-2); }
+  .sched-item[data-on=false] { opacity: 0.55; }
+  .sched-time { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .sched-meta { min-width: 0; font-size: 14px; }
+  .sched-meta b { display: block; font-weight: 600; }
+  .sched-meta span { color: var(--muted); }
+  .switch { position: relative; width: 48px; height: 28px; border-radius: 14px; border: 0; padding: 0; background: var(--surface-3); transition: background-color 150ms ease; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform 200ms var(--ease-out); }
+  .switch[aria-checked=true] { background: var(--ok); }
+  .switch[aria-checked=true]::after { transform: translateX(20px); }
+  .del { width: 36px; height: 36px; border: 0; border-radius: 50%; background: none; color: var(--muted); display: grid; place-items: center; padding: 0; }
+  .del svg { width: 18px; height: 18px; }
+  @media (hover: hover) and (pointer: fine) { .del:hover { color: var(--bad); background: var(--surface-3); } }
+
+  .sched-form { margin-top: 14px; padding: 16px; border-radius: var(--r-md); border: 1px dashed var(--line); display: grid; gap: 14px; }
+  .sched-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; }
+  .sched-form input[type=time] { min-height: 48px; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--bg); border: 1px solid var(--line);
+    border-radius: var(--r-sm); padding: 0 12px; color-scheme: dark; }
+  .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .days button { min-height: 40px; border-radius: var(--r-sm); border: 1px solid var(--line); background: none; color: var(--muted); font-size: 14px; font-weight: 500; padding: 0; }
+  .days button[aria-pressed=true] { background: var(--surface-3); color: var(--text); border-color: var(--surface-3); }
+  .day-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .day-presets button { border: 0; background: none; color: var(--muted); font-size: 13px; padding: 6px 4px; min-height: 32px; text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ==========================================================================
+     Liquid Glass layer. The glass refracts an ambient backdrop made from the
+     strip's current colour and, while music plays, the blurred cover art —
+     the same idea as the iOS lock screen.
+     ========================================================================== */
+  :root {
+    --surface: rgba(255,255,255,.06); --surface-2: rgba(255,255,255,.08); --surface-3: rgba(255,255,255,.16);
+    --line: rgba(255,255,255,.12); --well: rgba(0,0,0,.28);
+    --muted: rgba(235,235,245,.62); --faint: rgba(235,235,245,.38);
+    --r-lg: 26px; --r-md: 16px; --r-sm: 11px;
+    --glass-bg: linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.04));
+    --glass-blur: blur(30px) saturate(170%);
+  }
+  body { background: #050507; }
+  #ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: #050507; --amb: rgb(255,0,0); pointer-events: none; }
+  #ambient .blob { position: absolute; width: 80vmax; height: 80vmax; border-radius: 50%; background-color: var(--amb);
+    -webkit-mask: radial-gradient(closest-side, #000 0%, rgba(0,0,0,.35) 45%, transparent 100%);
+            mask: radial-gradient(closest-side, #000 0%, rgba(0,0,0,.35) 45%, transparent 100%);
+    opacity: .38; transition: background-color 700ms ease, opacity 700ms ease; }
+  #ambient .b1 { top: -38vmax; left: -30vmax; }
+  #ambient .b2 { bottom: -46vmax; right: -34vmax; opacity: .24; }
+  #ambientImg { position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover; filter: blur(60px) saturate(1.4) brightness(.5);
+    opacity: 0; transition: opacity 800ms ease; }
+  #ambient.has-art #ambientImg { opacity: 1; }
+  #ambient.has-art .blob { opacity: .12; }
+
+  /* glass surfaces */
+  .device, [role=tablist], .panel, details, #bar {
+    position: relative; background: var(--glass-bg) !important; border: 1px solid rgba(255,255,255,.1) !important;
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 12px 32px rgba(0,0,0,.28);
+  }
+  /* specular rim: brighter on the top-left and bottom-right edges, like light catching glass */
+  .device::before, [role=tablist]::before, .panel::before, details::before, #bar::before {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+    background: linear-gradient(140deg, rgba(255,255,255,.5), rgba(255,255,255,.08) 30%, rgba(255,255,255,0) 50%, rgba(255,255,255,.08) 70%, rgba(255,255,255,.32));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+  .device, .panel, details { border-radius: var(--r-lg); }
+  [role=tablist] { border-radius: 22px; padding: 5px; }
+  [role=tab] { border-radius: 17px; color: var(--muted); }
+  [role=tab][aria-selected=true] { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
+  .seg, .url-row input, .sched-form input[type=time] { background: var(--well) !important; border-color: rgba(255,255,255,.08) !important; }
+  .seg { border-radius: 14px; } .seg button { border-radius: 10px; }
+  .seg button[aria-pressed=true] { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.18); }
+  .btn { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.08); border-radius: 14px; }
+  @media (hover: hover) and (pointer: fine) { .btn:hover { background: rgba(255,255,255,.14); } }
+  .btn.primary { background: #fff; border-color: #fff; color: #000; }
+  @media (hover: hover) and (pointer: fine) { .btn.primary:hover { background: rgba(255,255,255,.86); } }
+  .power[aria-pressed="true"] { background: #fff; color: #000; }
+  .power, .icon-round { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.1); }
+  .strip { background: rgba(0,0,0,.45); border-color: rgba(255,255,255,.08); }
+  .device .bright-field { border-top-color: rgba(255,255,255,.1); }
+  .divider, #scNow, .music-opts { border-color: rgba(255,255,255,.1) !important; }
+  .sched-form { border-color: rgba(255,255,255,.16); }
+  .chips button[aria-pressed=true], .favs button[aria-current=true] { background: #fff; color: #000; border-color: #fff; }
+  .trk[aria-current=true] .trk-title, #tracks button[aria-current=true] { color: #fff; }
+  .trk[aria-current=true] { background: rgba(255,255,255,.12); }
+  .tile-main[aria-current=true] .tile-art { outline-color: #fff; }
+  input[type=range] { --c: #fff; }
+  #bright { --c: rgb(255,0,0); }
+  #meter i { background: #fff; }
+  .check input, .days button { accent-color: #fff; }
+  #toast { background: rgba(40,40,46,.72); color: #fff; border: 1px solid rgba(255,255,255,.14);
+    -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border-radius: 18px; }
+
+  /* ---------- Now Playing: iOS lock-screen style, same on phone and computer ---------- */
+  #bar { border-radius: 30px; padding: 18px 18px 12px; }
+  #bar .inner { gap: 12px; }
+  #barLevel { position: absolute; left: 24px; right: 24px; top: -19px; height: 2px; border-radius: 1px; background: #fff; opacity: .75; }
+  .bar-top { gap: 14px; }
+  #barArt { width: 64px; height: 64px; border-radius: 12px; background: rgba(255,255,255,.1); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+  #barTitle { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; color: #fff; }
+  #barSub { font-size: 17px; color: var(--muted); margin-top: 1px; }
+  .bar-seek { grid-template-columns: 3.4em 1fr 3.4em; gap: 10px; font-size: 13px; color: var(--muted); }
+  .bar-seek span:first-child { text-align: left; }
+  #barSeek { height: 24px; --c: rgba(255,255,255,.85); }
+  #barSeek::-webkit-slider-runnable-track { height: 8px; border-radius: 4px;
+    background: linear-gradient(to right, var(--c) var(--p), rgba(255,255,255,.2) var(--p)); transition: height 150ms ease; }
+  #barSeek::-moz-range-track { height: 8px; border-radius: 4px; background: rgba(255,255,255,.2); }
+  #barSeek::-moz-range-progress { height: 8px; border-radius: 4px; background: rgba(255,255,255,.85); }
+  #barSeek::-webkit-slider-thumb { width: 8px; height: 8px; margin-top: 0; background: transparent; box-shadow: none; }
+  #barSeek::-moz-range-thumb { width: 8px; height: 8px; background: transparent; box-shadow: none; border: 0; }
+  #barSeek:active { --c: #fff; }
+  #barSeek:active::-webkit-slider-runnable-track { height: 12px; }
+  #barSeek:active::-webkit-slider-thumb { margin-top: 2px; transform: none; }
+
+  #bar .ctl { max-width: 380px; justify-content: space-between; }
+  #bar .ctl button { width: 52px; height: 52px; border-radius: 16px; color: #fff; }
+  #bar .ctl #barPlay { width: 64px; height: 64px; background: none; color: #fff; }
+  #bar svg { width: 28px; height: 28px; }
+  #bar #barPlay svg { width: 40px; height: 40px; }
+  #bar .mode-btn svg { width: 24px; height: 24px; }
+  #bar .mode-btn { color: rgba(255,255,255,.55); }
+  #bar .mode-btn[aria-pressed=true] { color: #fff; background: rgba(255,255,255,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.18); }
+  #bar .mode-btn[aria-pressed=true]::after { display: none; }
+  #bar .mode-btn .one { top: 9px; right: 8px; width: 15px; height: 15px; border-radius: 50%; background: #fff; color: #000;
+    font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; }
+  @media (hover: hover) and (pointer: fine) { #bar .ctl button:not(#barPlay):not([aria-pressed=true]):hover { background: rgba(255,255,255,.08); } }
+
+  /* phone: floating widget above the bottom edge */
+  #bar:not(.docked) { left: 50%; right: auto; bottom: calc(10px + env(safe-area-inset-bottom)); width: min(560px, calc(100% - 20px));
+    transform: translateX(-50%); padding: 18px 16px 10px; border-top: 1px solid rgba(255,255,255,.1) !important; }
+  #bar:not(.docked) .inner { display: grid !important; grid-template-columns: none !important; grid-template-areas: none !important; }
+  #bar:not(.docked) .bar-top, #bar:not(.docked) .ctl, #bar:not(.docked) .bar-seek { grid-area: auto !important; }
+  #bar:not(.docked) .ctl { width: 100%; }
+  body.has-bar .app { padding-bottom: 268px !important; }
+  body.has-bar #toast { bottom: 262px !important; }
+  #bar.docked { padding: 20px 20px 12px; }
+  #bar.docked #barLevel { left: 24px; right: 24px; top: -21px; }
+  #bar.docked #barArt { width: 72px; height: 72px; }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .device, [role=tablist], .panel, details, #bar, #toast { background: #1c1c1f !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+    #ambient { display: none; }
+  }
+
+  /* ---------- player: compact sizes, pinned to the bottom on phones, collapsible mini mode ---------- */
+  #bar:not(.docked) { position: fixed !important; }
+  #bar.docked { position: relative !important; }
+  #bar { padding: 14px 14px 8px; border-radius: 26px; }
+  #bar .inner { gap: 8px; }
+  #barArt { width: 52px; height: 52px; border-radius: 10px; }
+  #barTitle { font-size: 16px; } #barSub { font-size: 15px; }
+  .bar-seek { font-size: 12px; } #barSeek { height: 18px; }
+  #bar .ctl button { width: 44px; height: 44px; border-radius: 14px; }
+  #bar .ctl #barPlay { width: 52px; height: 52px; }
+  #bar svg { width: 24px; height: 24px; } #bar #barPlay svg { width: 34px; height: 34px; } #bar .mode-btn svg { width: 21px; height: 21px; }
+  #bar .mode-btn .one { top: 6px; right: 5px; width: 14px; height: 14px; line-height: 14px; font-size: 9px; }
+  #bar.docked { padding: 16px 16px 8px; }
+  #bar.docked #barArt { width: 56px; height: 56px; }
+  #bar.docked #barLevel { top: -17px; }
+  #bar:not(.docked) #barLevel { display: none; }
+  #bar:not(.docked) { padding: 10px 14px 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  /* floating over text: denser glass so the page behind does not show through the letters */
+  #bar:not(.docked) { background: linear-gradient(180deg, rgba(44,44,50,.72), rgba(26,26,30,.78)) !important; -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%); }
+
+  .bar-grab { display: none; position: relative; height: 14px; margin: -4px 0 -2px; border: 0; background: none; padding: 0; width: 100%; }
+  .bar-grab::before { content: ""; position: absolute; left: 50%; top: 4px; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: rgba(255,255,255,.35); }
+  .bar-grab::after { content: ""; position: absolute; inset: -10px 25%; }
+  #bar:not(.docked):not(.mini) .bar-grab { display: block; }
+
+  #barMiniProg { display: none; }
+  #bar.mini { padding: 8px 8px 8px 8px; border-radius: 22px; cursor: pointer; }
+  #bar.mini .inner { grid-template-columns: minmax(0, 1fr) auto !important; grid-template-areas: "top ctl" !important; gap: 4px; align-items: center; }
+  #bar.mini .bar-top { grid-area: top !important; gap: 10px; }
+  #bar.mini .ctl { grid-area: ctl !important; width: auto; gap: 0; }
+  #bar.mini .bar-seek, #bar.mini #barShuffle, #bar.mini #barPrev, #bar.mini #barRepeat, #bar.mini .bar-sync { display: none !important; }
+  #bar.mini #barArt { width: 44px; height: 44px; border-radius: 9px; }
+  #bar.mini #barTitle { font-size: 15px; } #bar.mini #barSub { font-size: 13px; }
+  #bar.mini .ctl #barPlay { width: 48px; height: 48px; } #bar.mini #barPlay svg { width: 28px; height: 28px; }
+  #bar.mini #barMiniProg { display: block; position: absolute; left: 22px; right: 22px; bottom: 3px; height: 2px; border-radius: 1px; background: rgba(255,255,255,.18); overflow: hidden; }
+  #barMiniProg i { display: block; height: 100%; background: #fff; transform-origin: left; transform: scaleX(0); }
+  @keyframes barIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  #bar.morph .inner { animation: barIn 220ms var(--ease-out); }
+  @media (prefers-reduced-motion: reduce) { #bar.morph .inner { animation: none; } }
+
+  body.has-bar .app { padding-bottom: 104px !important; }
+  body.has-bar #toast { bottom: 96px !important; }
+  body.has-bar.bar-full #toast { bottom: 236px !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition-duration: 0ms !important; } }
+</style>
+</head>
+<body>
+<div id="ambient" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><img id="ambientImg" alt=""></div>
+<div class="app">
+
+  <!-- ===== device ===== -->
+  <aside class="side" id="side">
+    <section class="device" aria-label="Лента">
+      <div class="device-head">
+        <div class="titles">
+          <h1>Лента</h1>
+          <div id="status" role="status">Не подключено</div>
+        </div>
+        <button class="btn primary" id="connect">Подключить</button>
+        <button class="icon-round" id="fsBtn" aria-label="Во весь экран" aria-pressed="false" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path id="fsIcon" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+        <button class="power" id="power" aria-pressed="true" aria-label="Питание" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.6a8 8 0 1 0 11.4 0"/></svg>
+        </button>
+      </div>
+
+      <div class="ios-help" id="iosHelp" hidden>
+        <p>Safari сам не умеет Bluetooth. Открой этот сайт в бесплатном браузере Bluefy:</p>
+        <ol>
+          <li>Установи <a href="https://apps.apple.com/app/id1492822055">Bluefy</a> из App Store.</li>
+          <li>Открой в нём led-lenta.vercel.app и нажми «Подключить».</li>
+        </ol>
+        <p class="hint">Если стоит расширение WebBLE для Safari, страница подхватит его сама.</p>
+      </div>
+
+      <div class="ios-help" id="connectHelp" hidden>
+        <p>Лента не нашлась? Проверь:</p>
+        <ol>
+          <li>Родное приложение ленты и nRF Connect полностью закрыты (смахни их вверх): лента держит только одно подключение.</li>
+          <li>Ноутбук отключён от ленты или его Bluetooth выключен.</li>
+          <li>На iPhone: Настройки → Bluefy → Bluetooth включён.</li>
+          <li>Вынь контроллер из розетки на 5 секунд и вставь обратно.</li>
+        </ol>
+        <button class="btn" id="connectAll" style="margin-top:12px;width:100%">Показать все устройства</button>
+      </div>
+
+      <div class="strip" id="strip" aria-hidden="true"></div>
+      <div class="field bright-field">
+        <div class="label"><label for="bright">Яркость</label><span class="num"><span id="brVal">100</span>%</span></div>
+        <input type="range" id="bright" min="1" max="100" value="100">
+      </div>
+    </section>
+  </aside>
+
+  <!-- ===== controls ===== -->
+  <main class="content">
+    <div role="tablist" aria-label="Разделы">
+      <button role="tab" id="t-color" aria-controls="p-color" aria-selected="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>Цвет</button>
+      <button role="tab" id="t-music" aria-controls="p-music" aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>Музыка</button>
+      <button role="tab" id="t-modes" aria-controls="p-modes" aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>Режимы</button>
+      <button role="tab" id="t-timer" aria-controls="p-timer" aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>Таймер</button>
+    </div>
+
+    <!-- COLOR -->
+    <section class="panel" id="p-color" role="tabpanel" aria-labelledby="t-color">
+      <div class="color-grid">
+        <div class="wheel-wrap" id="wheelWrap" tabindex="0" role="slider" aria-label="Цветовой круг"
+             aria-valuetext="" aria-describedby="wheelHelp">
+          <canvas id="wheel"></canvas>
+          <div id="knob"></div>
+        </div>
+        <div>
+          <div class="swatches" id="swatches"></div>
+        </div>
+      </div>
+      <p class="sr" id="wheelHelp">Стрелки влево и вправо меняют оттенок, вверх и вниз — насыщенность.</p>
+    </section>
+
+    <!-- MODES -->
+    <section class="panel" id="p-modes" role="tabpanel" aria-labelledby="t-modes" hidden>
+      <div class="fx-head">
+        <button class="btn" id="fxPrev" aria-label="Предыдущий режим">−</button>
+        <div class="big"><b id="fxNum">1</b><small>режим из 210</small></div>
+        <button class="btn" id="fxNext" aria-label="Следующий режим">+</button>
+      </div>
+      <div class="field" style="margin-top:18px">
+        <label class="sr" for="fxRange">Выбор режима</label>
+        <input type="range" id="fxRange" min="1" max="210" value="1">
+      </div>
+      <div class="fx-tools">
+        <button class="btn" id="fxFav" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>
+          <span>В избранное</span></button>
+        <button class="btn" id="fxAutoBtn" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+          Автосмена</button>
+      </div>
+      <hr class="divider">
+      <h2>Избранное</h2>
+      <div class="favs" id="favs"></div>
+      <p class="hint" id="favsEmpty">Режимы без названий, поэтому отмечай понравившиеся звёздочкой, и они появятся здесь.</p>
+    </section>
+
+    <!-- MUSIC -->
+    <section class="panel" id="p-music" role="tabpanel" aria-labelledby="t-music" hidden>
+      <div class="seg" style="--n:3" role="group" aria-label="Источник звука">
+        <button data-src="file" aria-pressed="true">Свои треки</button>
+        <button data-src="sc" aria-pressed="false">SoundCloud</button>
+        <button data-src="mic" aria-pressed="false">Микрофон</button>
+      </div>
+
+      <div id="fileArea">
+        <label class="btn file-btn" for="files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Добавить музыку</label>
+        <input type="file" id="files" accept="audio/*" multiple class="sr">
+        <ul id="tracks"></ul>
+      </div>
+
+      <div id="scArea" hidden>
+        <form class="url-row" id="scForm">
+          <label class="sr" for="scUrl">Ссылка на SoundCloud</label>
+          <input id="scUrl" type="url" inputmode="url" placeholder="Ссылка на альбом, плейлист или трек" autocomplete="off">
+          <button class="btn primary" type="submit">Добавить</button>
+        </form>
+        <p class="hint">В SoundCloud: «Поделиться» → «Копировать ссылку». Закрытый плейлист добавляется по секретной ссылке.</p>
+
+        <div id="scLibWrap" hidden>
+          <h2 class="sub-h">Мои плейлисты</h2>
+          <div class="lib" id="scLib"></div>
+        </div>
+
+        <div id="scNow" hidden>
+          <div class="pl-head">
+            <span class="pl-art"><img id="plArt" alt="" hidden></span>
+            <div class="pl-meta">
+              <div id="plTitle">Плейлист</div>
+              <div id="plSub">Загрузка…</div>
+              <div class="pl-actions">
+                <button class="btn primary" id="plPlay"></button>
+                <button class="btn icon-btn" id="plShuffle" aria-label="Перемешать и слушать">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <button class="btn sync-btn" id="scSync" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12h3l3-8 4 16 3-8h7"/></svg>
+            <span id="scSyncLabel">Точнее: по звуку вкладки</span></button>
+          <p class="hint" id="scSyncHint" hidden>В окне Chrome выбери эту вкладку и включи «Также поделиться звуком вкладки». Музыка продолжит играть как обычно.</p>
+          <p class="hint" id="waveInfo"></p>
+          <ol class="pl-tracks" id="plTracks"></ol>
+          <button class="linkish" id="scShowWidget" type="button">Показать плеер SoundCloud</button>
+        </div>
+        <iframe id="scFrame" class="sc-frame" title="Плеер SoundCloud" allow="autoplay; encrypted-media"></iframe>
+      </div>
+
+      <div id="micArea" hidden>
+        <button class="btn file-btn" id="micBtn">Слушать микрофон</button>
+        <p class="hint">Лента реагирует на звук в комнате: колонку, телевизор, телефон. Ничего не записывается.</p>
+      </div>
+
+      <div class="music-opts">
+        <h2>Как светиться</h2>
+        <div class="seg" style="--n:3" role="group" aria-label="Режим подсветки">
+          <button data-mode="rainbow" aria-pressed="true">Радуга</button>
+          <button data-mode="mono" aria-pressed="false">Мой цвет</button>
+          <button data-mode="strobe" aria-pressed="false">Вспышки</button>
+        </div>
+        <div class="field" style="margin-top:18px">
+          <div class="label"><label for="sens">Чувствительность к биту</label><span class="num" id="sensVal">6</span></div>
+          <input type="range" id="sens" min="1" max="10" value="6">
+        </div>
+        <div class="field">
+          <div class="label"><label for="smooth">Плавность</label><span class="num" id="smoothVal">6</span></div>
+          <input type="range" id="smooth" min="1" max="10" value="6">
+        </div>
+        <div id="meter" aria-hidden="true"><i></i></div>
+        <label class="check" id="keepAwakeRow" style="margin-top:10px"><input type="checkbox" id="keepAwake"> Не гасить экран, пока работает светомузыка</label>
+      </div>
+    </section>
+
+    <!-- TIMER -->
+    <section class="panel" id="p-timer" role="tabpanel" aria-labelledby="t-timer" hidden>
+      <h2>Выключить через</h2>
+      <div class="chips" id="sleepChips" role="group" aria-label="Таймер сна">
+        <button data-min="15" aria-pressed="false">15 мин</button>
+        <button data-min="30" aria-pressed="false">30 мин</button>
+        <button data-min="60" aria-pressed="false">1 час</button>
+        <button data-min="120" aria-pressed="false">2 часа</button>
+      </div>
+      <div class="sleep-state" id="sleepState" hidden>
+        <span>Лента выключится в <b id="sleepAtText">—</b> <span class="hint" id="sleepLeft" style="margin:0"></span></span>
+        <button class="btn" id="sleepCancel">Отменить</button>
+      </div>
+
+      <hr class="divider">
+      <h2>Расписание</h2>
+      <ul class="sched-list" id="schedList"></ul>
+      <p class="hint" id="schedEmpty">Пока пусто. Например: включать в 7:30 по будням, выключать в 0:30 каждый день.</p>
+
+      <form class="sched-form" id="schedForm">
+        <div class="sched-row">
+          <label class="sr" for="schTime">Время</label>
+          <input type="time" id="schTime" value="07:30" required>
+          <div class="seg" style="--n:2" role="group" aria-label="Действие">
+            <button type="button" data-act="on" aria-pressed="true">Включить</button>
+            <button type="button" data-act="off" aria-pressed="false">Выключить</button>
+          </div>
+        </div>
+        <div>
+          <div class="days" id="schDays" role="group" aria-label="Дни недели">
+            <button type="button" data-d="1" aria-pressed="true">Пн</button>
+            <button type="button" data-d="2" aria-pressed="true">Вт</button>
+            <button type="button" data-d="3" aria-pressed="true">Ср</button>
+            <button type="button" data-d="4" aria-pressed="true">Чт</button>
+            <button type="button" data-d="5" aria-pressed="true">Пт</button>
+            <button type="button" data-d="6" aria-pressed="true">Сб</button>
+            <button type="button" data-d="0" aria-pressed="true">Вс</button>
+          </div>
+          <div class="day-presets">
+            <button type="button" data-preset="all">Каждый день</button>
+            <button type="button" data-preset="work">Будни</button>
+            <button type="button" data-preset="weekend">Выходные</button>
+          </div>
+        </div>
+        <button class="btn primary" type="submit">Добавить в расписание</button>
+      </form>
+      <p class="hint">Таймеры работают, пока эта страница открыта: можно свернуть вкладку, но не закрывать браузер. Лента должна быть в зоне Bluetooth.</p>
+    </section>
+
+    <details>
+      <summary>Если цвета на ленте не совпадают</summary>
+      <div class="row">
+        <label for="order">Порядок цветов</label>
+        <select id="order">
+          <option>RGB</option><option>RBG</option><option>GRB</option><option>GBR</option><option>BRG</option><option>BGR</option>
+        </select>
+        <button class="btn" id="testRed">Проверка: красный</button>
+      </div>
+      <label class="check"><input type="checkbox" id="gamma" checked> Коррекция оттенков</label>
+      <p class="hint">У этой ленты порядок GRB. Если «Проверка: красный» горит не красным, меняй порядок, пока не загорится красный.</p>
+    </details>
+  </main>
+</div>
+
+<div id="bar" class="mini" hidden>
+  <div id="barMiniProg" aria-hidden="true"><i></i></div>
+  <div class="inner">
+    <button class="bar-grab" id="barGrab" aria-label="Свернуть плеер"></button>
+    <div id="barLevel" aria-hidden="true"></div>
+    <button id="barSync" class="bar-sync" hidden>Лента не слышит SoundCloud. <b>Включить подсветку</b></button>
+    <div class="bar-top">
+      <div id="barArt" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+        <img id="barImg" alt="" hidden>
+      </div>
+      <div class="meta"><div id="barTitle">—</div><div id="barSub"></div></div>
+    </div>
+    <div class="bar-seek">
+      <span id="tCur">0:00</span>
+      <input type="range" id="barSeek" min="0" max="100" value="0" step="0.1" aria-label="Позиция в треке">
+      <span id="tDur">0:00</span>
+    </div>
+    <div class="ctl">
+      <button id="barShuffle" class="mode-btn" aria-pressed="false" aria-label="Случайный порядок">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5h3.2c1.8 0 3 .8 4.1 2.4l2.4 3.6c1.1 1.6 2.3 2.4 4.1 2.4H20"/><path d="M3 16.5h3.2c1.3 0 2.3-.4 3.1-1.2M13.7 8.7c.8-.8 1.8-1.2 3.1-1.2H20"/><path d="M17.5 5 20 7.5 17.5 10M17.5 14 20 16.5 17.5 19"/></svg></button>
+      <button id="barPrev" aria-label="Предыдущий трек"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><path d="M11.2 6.4v11.2L2.8 12zM21.2 6.4v11.2L12.8 12z"/></svg></button>
+      <button id="barPlay" aria-label="Воспроизвести"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.6v14.8c0 .9 1 1.4 1.7.9l11.4-7.4a1.1 1.1 0 0 0 0-1.8L8.7 3.7C8 3.2 7 3.7 7 4.6z"/></svg></button>
+      <button id="barNext" aria-label="Следующий трек"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><path d="M12.8 6.4v11.2l8.4-5.6zM2.8 6.4v11.2l8.4-5.6z"/></svg></button>
+      <button id="barRepeat" class="mode-btn" aria-pressed="false" aria-label="Повтор выключен" data-repeat="off">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 11.5V10a4 4 0 0 1 4-4h13"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 12.5V14a4 4 0 0 1-4 4h-13"/></svg>
+        <span class="one">1</span></button>
+    </div>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('lenta.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('lenta.' + k, JSON.stringify(v)); } catch {} }
+  };
+  let toastTimer;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+  }
+
+  // ambient backdrop behind the glass: strip colour + cover art while music plays
+  let ambientArt = '';
+  function setAmbientColor(rgb) { $('ambient').style.setProperty('--amb', `rgb(${rgb})`); }
+  function setAmbientArt(url) {
+    if (url === ambientArt) return;
+    ambientArt = url;
+    const img = $('ambientImg');
+    if (url) { img.onload = () => $('ambient').classList.add('has-art'); img.src = url; }
+    else $('ambient').classList.remove('has-art');
+  }
+  function fillRange(r) {
+    const span = (+r.max - +r.min) || 1;
+    r.style.setProperty('--p', ((+r.value - +r.min) / span * 100) + '%');
+  }
+  document.querySelectorAll('input[type=range]').forEach(r => { r.addEventListener('input', () => fillRange(r)); fillRange(r); });
+
+  /* ================= Bluetooth (LEDDMX-03, 7B…BF) ================= */
+  const SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb', CHAR = '0000ffe1-0000-1000-8000-00805f9b34fb';
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  // Chrome/Edge/Bluefy expose navigator.bluetooth; the WebBLE Safari extension exposes navigator.webble
+  function getBT() {
+    if (navigator.bluetooth) return navigator.bluetooth;
+    const w = navigator.webble;
+    return w && w.__webble === true ? w : null;
+  }
+  function noBluetooth() {
+    if (isIOS) { setStatus('Открой в Bluefy', 'err'); $('iosHelp').hidden = false; }
+    else setStatus('Нужен Chrome или Edge', 'err');
+  }
+  let device = null, ch = null;
+
+  const GAMMA = Array.from({ length: 256 }, (_, i) => Math.round(255 * Math.pow(i / 255, 2.2)));
+  function toStrip([r, g, b]) {
+    if ($('gamma').checked) { r = GAMMA[r]; g = GAMMA[g]; b = GAMMA[b]; }
+    const m = { R: r, G: g, B: b };
+    return $('order').value.split('').map(c => m[c]);
+  }
+  const CMD = {
+    power: on => [0x7B, 0x04, 0x04, on ? 1 : 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF],
+    color: rgb => { const [a, b, c] = toStrip(rgb); return [0x7B, 0xFF, 0x07, a, b, c, 0x00, 0xFF, 0xBF]; },
+    brightness: p => { p = clamp(p | 0, 0, 100); return [0x7B, 0xFF, 0x01, Math.round(p * 32 / 100), p, 0x00, 0xFF, 0xFF, 0xBF]; },
+    effect: n => [0x7B, 0xFF, 0x03, clamp(n | 0, 1, 210), 0xFF, 0xFF, 0xFF, 0xFF, 0xBF],
+  };
+
+  // one write at a time; for each kind of command only the latest value is sent
+  const pending = new Map(); let busy = false;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function send(key, bytes) {
+    if (!ch) return false;
+    pending.delete(key); pending.set(key, new Uint8Array(bytes)); pump(); return true;
+  }
+  async function pump() {
+    if (busy) return; busy = true;
+    while (pending.size && ch) {
+      const [key, bytes] = pending.entries().next().value; pending.delete(key);
+      try { ch.writeValueWithoutResponse ? await ch.writeValueWithoutResponse(bytes) : await ch.writeValue(bytes); }
+      catch (e) { console.warn('write failed', e); }
+      await sleep(20);
+    }
+    busy = false;
+  }
+  function needConn() { if (!ch) { toast('Сначала подключи ленту'); return true; } return false; }
+
+  function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = cls || ''; }
+  const NAME_RE = /^(LEDDMX|LEDBLE)/;
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  let reconnecting = false, userDisconnect = false;
+
+  async function attach() {
+    setStatus('Подключаюсь…');
+    const server = await withTimeout(device.gatt.connect(), 10000);
+    ch = await (await server.getPrimaryService(SERVICE)).getCharacteristic(CHAR);
+    setStatus(device.name || 'Подключено', 'on');
+    $('connect').hidden = true; $('power').hidden = false; $('connectHelp').hidden = true;
+    store.set('lastDevice', { id: device.id, name: device.name || '' });
+  }
+  function useDevice(d) {
+    if (device === d) return;
+    device = d;
+    d.addEventListener('gattserverdisconnected', onDisconnected);
+  }
+  async function onDisconnected() {
+    ch = null; pending.clear();
+    $('power').hidden = true;
+    if (userDisconnect) { userDisconnect = false; return; }
+    // the strip dropped the link (e.g. the phone app grabbed it): try to get it back on our own
+    for (let i = 1; i <= 4; i++) {
+      setStatus(`Переподключаюсь… (${i})`);
+      try { await attach(); return; } catch {}
+      await sleep(1500 * i);
+    }
+    setStatus('Соединение потеряно', 'err');
+    $('connect').hidden = false; $('connect').textContent = 'Переподключить';
+  }
+
+  // devices this site was already allowed to use, so no picker is needed
+  async function knownStrip() {
+    const bt = getBT();
+    if (!bt || typeof bt.getDevices !== 'function') return null;
+    try {
+      const list = await bt.getDevices();
+      const last = store.get('lastDevice', null);
+      return (last && list.find(d => d.id === last.id)) || list.find(d => NAME_RE.test(d.name || '')) || null;
+    } catch { return null; }
+  }
+  async function autoConnect(quiet) {
+    if (ch || reconnecting) return !!ch;
+    const d = await knownStrip();
+    if (!d) return false;
+    reconnecting = true; useDevice(d);
+    try { await attach(); return true; }
+    catch {
+      // not in range yet: wait for it to show up, then connect
+      if (typeof d.watchAdvertisements === 'function') {
+        try {
+          const onAdv = async () => { d.removeEventListener('advertisementreceived', onAdv); try { await attach(); } catch {} };
+          d.addEventListener('advertisementreceived', onAdv);
+          await d.watchAdvertisements();
+          setStatus('Ищу ленту…');
+          return true;
+        } catch {}
+      }
+      if (!quiet) setStatus('Лента не отвечает', 'err');
+      else setStatus('Не подключено');
+      return false;
+    } finally { reconnecting = false; }
+  }
+
+  async function connectWith(opts) {
+    const bt = getBT();
+    if (!bt) { noBluetooth(); return; }
+    $('iosHelp').hidden = true;
+    try {
+      useDevice(await bt.requestDevice(opts));
+      await attach();
+    } catch (e) {
+      setStatus(e.name === 'NotFoundError' ? 'Не подключено' : 'Не удалось подключиться', e.name === 'NotFoundError' ? '' : 'err');
+      $('connectHelp').hidden = false;
+    }
+  }
+  $('connect').onclick = async () => {
+    if (device && !device.gatt.connected) { try { await attach(); return; } catch {} }
+    if (await autoConnect(false)) return;
+    connectWith({ filters: [{ namePrefix: 'LEDDMX' }, { namePrefix: 'LEDBLE' }, { services: [SERVICE] }], optionalServices: [SERVICE] });
+  };
+  $('connectAll').onclick = () => connectWith({ acceptAllDevices: true, optionalServices: [SERVICE] });
+  // on open: reconnect by itself to the strip used last time
+  setTimeout(() => { if (getBT()) autoConnect(true); }, 700);
+
+  let powered = true;
+  function setPower(on) {
+    powered = on;
+    $('power').setAttribute('aria-pressed', powered);
+    if (!powered) stopAllMusic();
+    send('power', CMD.power(powered));
+    setNow(powered ? lastKind : 'off');
+  }
+  $('power').onclick = () => { if (needConn()) return; setPower(!powered); };
+
+  let collapsePlayer = null;
+  /* ================= Tabs ================= */
+  const tabs = [...document.querySelectorAll('[role=tab]')];
+  function selectTab(tab) {
+    if (typeof collapsePlayer === 'function') collapsePlayer();
+    tabs.forEach(t => {
+      const on = t === tab;
+      t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+      $(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    if (tab.id === 't-color') drawWheel();
+  }
+  tabs.forEach((t, i) => {
+    t.onclick = () => selectTab(t);
+    t.onkeydown = e => {
+      const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; selectTab(n); n.focus(); }
+    };
+  });
+
+  /* ================= Color wheel ================= */
+  function hsv2rgb(h, s, v) {
+    const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+    return [f(5), f(3), f(1)].map(x => Math.round(x * 255));
+  }
+  function rgb2hs([r, g, b]) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    let h = 0;
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { h: (h * 60 + 360) % 360, s: mx ? d / mx : 0 };
+  }
+
+  const cv = $('wheel'), wrap = $('wheelWrap'), knob = $('knob');
+  let sel = store.get('hs', { h: 0, s: 1 });
+  let drawnSize = 0;
+  function drawWheel() {
+    const css = wrap.clientWidth; if (!css) return;
+    const S = Math.round(css * Math.min(2, window.devicePixelRatio || 1));
+    if (S !== drawnSize) {
+      cv.width = cv.height = S; drawnSize = S;
+      const ctx = cv.getContext('2d'), img = ctx.createImageData(S, S), d = img.data, R = S / 2;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const dx = x + 0.5 - R, dy = y + 0.5 - R, dist = Math.hypot(dx, dy), i = (y * S + x) * 4;
+        const a = clamp(R - dist, 0, 1); if (!a) continue;
+        const h = (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360;
+        const [r, g, b] = hsv2rgb(h, Math.min(1, dist / R), 1);
+        d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a * 255;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+    placeKnob();
+  }
+  function placeKnob() {
+    const R = wrap.clientWidth / 2, a = sel.h * Math.PI / 180;
+    knob.style.left = (R + Math.cos(a) * sel.s * R) + 'px';
+    knob.style.top = (R - Math.sin(a) * sel.s * R) + 'px';
+  }
+  function currentRGB() { return hsv2rgb(sel.h, sel.s, 1); }
+  function applyColor(sendIt = true) {
+    const rgb = currentRGB();
+    knob.style.background = `rgb(${rgb})`;
+    wrap.setAttribute('aria-valuetext', `R ${rgb[0]}, G ${rgb[1]}, B ${rgb[2]}`);
+    placeKnob(); store.set('hs', sel);
+    $('bright').style.setProperty('--c', `rgb(${rgb})`);
+    setAmbientColor(rgb);
+    if (!musicActive() && (sendIt || nowState === 'color')) setNow('color');
+    if (sendIt && !musicActive()) { stopAutoFx(); send('color', CMD.color(rgb)); }
+  }
+  function pick(e) {
+    const r = wrap.getBoundingClientRect(), R = r.width / 2;
+    const dx = e.clientX - r.left - R, dy = e.clientY - r.top - R;
+    sel = { h: (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360, s: clamp(Math.hypot(dx, dy) / R, 0, 1) };
+    applyColor();
+  }
+  wrap.addEventListener('pointerdown', e => { wrap.setPointerCapture(e.pointerId); pick(e); if (!ch) toast('Сначала подключи ленту'); });
+  wrap.addEventListener('pointermove', e => { if (wrap.hasPointerCapture(e.pointerId)) pick(e); });
+  wrap.addEventListener('keydown', e => {
+    const k = { ArrowLeft: [-5, 0], ArrowRight: [5, 0], ArrowUp: [0, 0.05], ArrowDown: [0, -0.05] }[e.key];
+    if (!k) return; e.preventDefault();
+    sel = { h: (sel.h + k[0] + 360) % 360, s: clamp(sel.s + k[1], 0, 1) }; applyColor();
+  });
+  new ResizeObserver(drawWheel).observe(wrap);
+
+  const presets = [[255,0,0],[255,96,0],[255,200,0],[0,255,0],[0,255,200],[0,64,255],[150,0,255],[255,0,160],
+                   [255,255,255],[255,214,170],[255,170,80],[255,90,90],[90,255,140],[90,160,255],[230,120,255],[120,255,255]];
+  presets.forEach(rgb => {
+    const b = document.createElement('button');
+    b.className = 'sw'; b.style.background = `rgb(${rgb})`; b.setAttribute('aria-label', `Цвет RGB ${rgb.join(', ')}`);
+    b.onclick = () => { needConn(); sel = rgb2hs(rgb); applyColor(); };
+    $('swatches').appendChild(b);
+  });
+
+  const br = store.get('bright', 100);
+  $('bright').value = br; $('brVal').textContent = br; fillRange($('bright'));
+  $('bright').addEventListener('input', e => {
+    $('brVal').textContent = e.target.value; store.set('bright', +e.target.value);
+    send('brightness', CMD.brightness(+e.target.value));
+  });
+
+  /* ================= Modes ================= */
+  let fx = store.get('fx', 1), autoTimer = 0;
+  function showFx() { $('fxNum').textContent = fx; $('fxRange').value = fx; fillRange($('fxRange')); store.set('fx', fx); renderFavs(); }
+  function runFx(n) {
+    fx = ((n - 1 + 210) % 210) + 1; showFx(); setNow('fx');
+    if (needConn()) return;
+    stopAllMusic(); send('effect', CMD.effect(fx));
+  }
+  function stopAutoFx() { clearInterval(autoTimer); autoTimer = 0; $('fxAutoBtn').setAttribute('aria-pressed', 'false'); }
+  $('fxPrev').onclick = () => runFx(fx - 1);
+  $('fxNext').onclick = () => runFx(fx + 1);
+  $('fxRange').addEventListener('input', e => runFx(+e.target.value));
+  $('fxAutoBtn').onclick = () => {
+    if (autoTimer) { stopAutoFx(); return; }
+    runFx(fx); autoTimer = setInterval(() => runFx(fx + 1), 10000);
+    $('fxAutoBtn').setAttribute('aria-pressed', 'true'); setNow('fx');
+  };
+  let favs = store.get('favs', []);
+  function renderFavs() {
+    const box = $('favs'); box.innerHTML = '';
+    favs.forEach(n => {
+      const b = document.createElement('button');
+      b.textContent = n; b.setAttribute('aria-label', 'Режим ' + n);
+      if (n === fx) b.setAttribute('aria-current', 'true');
+      b.onclick = () => { stopAutoFx(); runFx(n); };
+      box.appendChild(b);
+    });
+    $('favsEmpty').hidden = favs.length > 0;
+    const on = favs.includes(fx);
+    $('fxFav').setAttribute('aria-pressed', on);
+    $('fxFav').querySelector('span').textContent = on ? 'В избранном' : 'В избранное';
+  }
+  $('fxFav').onclick = () => {
+    favs = favs.includes(fx) ? favs.filter(n => n !== fx) : [...favs, fx].sort((a, b) => a - b);
+    store.set('favs', favs); renderFavs();
+  };
+  showFx();
+
+  /* ================= Music ================= */
+  let actx = null, analyser = null;
+  let mediaSrc = null, micStream = null, micSrc = null, tabStream = null, tabSrc = null;
+  const audio = new Audio(); audio.preload = 'auto';
+  let tracks = [], cur = -1, mode = 'rainbow', source = 'file', raf = 0, active = null;
+  let shuffle = store.get('shuffle', false), repeat = store.get('repeat', 'off');
+  const canCapture = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+  let syncAsked = false;
+
+  function ensureCtx() {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = actx.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.4;
+    }
+    if (actx.state === 'suspended') actx.resume();
+  }
+  const musicActive = () => !!raf;
+  const fmt = s => isFinite(s) && s > 0 ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '0:00';
+  const rnd = (n, not) => { if (n < 2) return 0; let i; do { i = Math.floor(Math.random() * n); } while (i === not); return i; };
+  const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
+
+  // which track plays next; null = stop. auto = the previous track just ended by itself
+  function pickNext(i, n, auto) {
+    if (!n) return null;
+    if (auto && repeat === 'one') return i;
+    if (shuffle) return rnd(n, i);
+    if (i + 1 < n) return i + 1;
+    return (repeat === 'all' || !auto) ? 0 : null;
+  }
+
+  /* ---------- players: local files and SoundCloud share one bottom bar ---------- */
+  const sc = { widget: null, ready: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, url: '', title: '', cover: '', autoplay: false, guard: 0, after: 0 };
+  const art300 = u => u ? u.replace('-large.', '-t300x300.') : '';
+  const soundArt = s => s ? (s.artwork_url || (s.user && s.user.avatar_url) || '') : '';
+  const scSound = () => sc.sounds[sc.index] || null;
+
+  const P = {
+    file: {
+      has: () => cur >= 0,
+      playing: () => !audio.paused,
+      title: () => tracks[cur] ? tracks[cur].name.replace(/\.[^.]+$/, '') : '',
+      artist: () => 'Свой трек',
+      art: () => '',
+      pos: () => audio.currentTime, dur: () => audio.duration || 0,
+      toggle: () => { ensureCtx(); audio.paused ? audio.play().catch(() => {}) : audio.pause(); },
+      next: () => { const i = pickNext(cur, tracks.length, false); if (i !== null) playTrack(i); },
+      prev: () => audio.currentTime > 3 ? (audio.currentTime = 0) : playTrack(shuffle ? rnd(tracks.length, cur) : cur - 1),
+      seek: s => { audio.currentTime = s; },
+      pause: () => audio.pause(),
+    },
+    sc: {
+      has: () => sc.ready && sc.sounds.length > 0,
+      playing: () => sc.playing,
+      title: () => (scSound() && scSound().title) || sc.title || 'SoundCloud',
+      artist: () => { const s = scSound(); return s && s.user ? s.user.username : ''; },
+      art: () => art300(soundArt(scSound())) || sc.cover,
+      pos: () => sc.pos / 1000, dur: () => sc.dur / 1000,
+      toggle: () => {
+        if (!sc.widget || !sc.ready) return;
+        if (sc.index < 0) return scPlay(shuffle ? rnd(sc.sounds.length, -1) : 0);
+        sc.playing ? sc.widget.pause() : sc.widget.play();
+      },
+      next: () => { const i = pickNext(sc.index, sc.sounds.length, false); if (i !== null) scPlay(i); },
+      prev: () => sc.pos > 3000 ? sc.widget.seekTo(0)
+        : scPlay(shuffle ? rnd(sc.sounds.length, sc.index) : (sc.index - 1 + sc.sounds.length) % sc.sounds.length),
+      seek: s => sc.widget && sc.widget.seekTo(s * 1000),
+      pause: () => sc.widget && sc.ready && sc.widget.pause(),
+    }
+  };
+  function setActive(name) {
+    if (active === name) return;
+    if (active && P[active]) P[active].pause();
+    active = name; refreshBar(); refreshLoop();
+  }
+
+  let barSeeking = false;
+  // computers: the player becomes a card under the strip; phones: a bar at the bottom
+  const dockMq = matchMedia('(min-width: 900px)');
+  function dockBar() {
+    const bar = $('bar'), docked = dockMq.matches;
+    if (docked && bar.parentElement !== $('side')) $('side').appendChild(bar);
+    if (!docked && bar.parentElement !== document.body) document.body.insertBefore(bar, $('toast'));
+    bar.classList.toggle('docked', docked);
+    if (typeof setMini === 'function') setMini(docked ? false : true, false);
+    document.body.classList.toggle('has-bar', !bar.hidden && !docked);
+  }
+  dockMq.addEventListener('change', dockBar);
+
+  // phones: the player lives as a slim pill and expands on tap; it folds back on tab switch, scroll or a tap elsewhere
+  let barMini = true, yAtExpand = 0;
+  collapsePlayer = () => { if (!barMini) setMini(true); };
+  function setMini(on, anim = true) {
+    const bar = $('bar');
+    if (dockMq.matches) on = false;
+    const changed = barMini !== on;
+    barMini = on;
+    bar.classList.toggle('mini', on);
+    document.body.classList.toggle('bar-full', !on && !bar.hidden && !dockMq.matches);
+    if (!on) yAtExpand = scrollY;
+    if (changed && anim) { bar.classList.remove('morph'); void bar.offsetWidth; bar.classList.add('morph'); }
+  }
+  $('bar').addEventListener('click', e => { if (barMini && !dockMq.matches && !e.target.closest('button')) setMini(false); });
+  $('barGrab').onclick = () => setMini(true);
+  addEventListener('scroll', () => { if (!barMini && Math.abs(scrollY - yAtExpand) > 40) setMini(true); }, { passive: true });
+  document.addEventListener('pointerdown', e => { if (!barMini && !dockMq.matches && !$('bar').contains(e.target)) setMini(true); }, true);
+  dockBar();
+  function refreshMediaSession(p) {
+    if (!('mediaSession' in navigator) || !p) return;
+    try {
+      const art = p.art();
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: p.title(), artist: p.artist() || 'Лента', album: active === 'sc' ? (sc.title || 'SoundCloud') : 'Свои треки',
+        artwork: art ? [{ src: art, sizes: '300x300' }] : [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }]
+      });
+      navigator.mediaSession.playbackState = p.playing() ? 'playing' : 'paused';
+    } catch {}
+  }
+  if ('mediaSession' in navigator) {
+    const act = (name, fn) => { try { navigator.mediaSession.setActionHandler(name, fn); } catch {} };
+    act('play', () => active && !P[active].playing() && P[active].toggle());
+    act('pause', () => active && P[active].playing() && P[active].toggle());
+    act('nexttrack', () => active && P[active].next());
+    act('previoustrack', () => active && P[active].prev());
+    act('seekto', d => active && P[active].seek(d.seekTime));
+  }
+  let lastMetaKey = '', lastPlayingIcon = null;
+  function refreshBar() {
+    const p = active && P[active];
+    const show = !!(p && p.has());
+    $('bar').hidden = !show; document.body.classList.toggle('has-bar', show && !dockMq.matches);
+    if (!show) { setAmbientArt(''); return; }
+    $('barSync').hidden = !(active === 'sc' && sc.playing && !tabSrc && canCapture && wave.failed);
+    $('barTitle').textContent = p.title();
+    const who = p.artist();
+    $('barSub').textContent = who || (active === 'sc' ? 'SoundCloud' : '');
+    if (!barSeeking) $('tCur').textContent = fmt(p.pos());
+    $('tDur').textContent = '−' + fmt(Math.max(0, p.dur() - (barSeeking ? +$('barSeek').value : p.pos())));
+    setAmbientArt(p.playing() ? p.art() : '');
+    const art = p.art(), img = $('barImg');
+    if (art) { if (img.getAttribute('src') !== art) img.src = art; img.hidden = false; } else img.hidden = true;
+    const metaKey = p.title() + '|' + p.playing();
+    if (metaKey !== lastMetaKey) { lastMetaKey = metaKey; refreshMediaSession(p); }
+    const playing = p.playing();
+    if (playing !== lastPlayingIcon) {
+      lastPlayingIcon = playing;
+      $('barPlay').innerHTML = playing
+        ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5.5" y="4" width="4.6" height="16" rx="1.4"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.4"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.6v14.8c0 .9 1 1.4 1.7.9l11.4-7.4a1.1 1.1 0 0 0 0-1.8L8.7 3.7C8 3.2 7 3.7 7 4.6z"/></svg>';
+    }
+    $('barPlay').setAttribute('aria-label', playing ? 'Пауза' : 'Воспроизвести');
+    if (!barSeeking) { $('barSeek').max = p.dur() || 0; $('barSeek').value = p.pos(); fillRange($('barSeek')); }
+    $('barMiniProg').firstElementChild.style.transform = `scaleX(${p.dur() ? Math.min(1, p.pos() / p.dur()).toFixed(4) : 0})`;
+  }
+  $('barPlay').onclick = () => { if (active === 'sc' && !sc.playing) maybeAutoSync(); active && P[active].toggle(); };
+  $('barNext').onclick = () => active && P[active].next();
+  $('barPrev').onclick = () => active && P[active].prev();
+  $('barSeek').addEventListener('input', e => { barSeeking = true; $('tCur').textContent = fmt(+e.target.value); $('tDur').textContent = '−' + fmt(Math.max(0, +e.target.max - +e.target.value)); });
+  $('barSeek').addEventListener('change', e => { barSeeking = false; active && P[active].seek(+e.target.value); });
+
+  function paintModes() {
+    $('barShuffle').setAttribute('aria-pressed', shuffle);
+    const rb = $('barRepeat');
+    rb.dataset.repeat = repeat;
+    rb.setAttribute('aria-pressed', repeat !== 'off');
+    rb.setAttribute('aria-label', { off: 'Повтор выключен', all: 'Повтор плейлиста', one: 'Повтор трека' }[repeat]);
+    audio.loop = repeat === 'one';
+  }
+  $('barShuffle').onclick = () => {
+    shuffle = !shuffle; store.set('shuffle', shuffle); paintModes();
+    toast(shuffle ? 'Случайный порядок' : 'По порядку');
+  };
+  $('barRepeat').onclick = () => {
+    repeat = { off: 'all', all: 'one', one: 'off' }[repeat]; store.set('repeat', repeat); paintModes();
+    toast({ off: 'Повтор выключен', all: 'Плейлист по кругу', one: 'Повтор одного трека' }[repeat]);
+  };
+  paintModes();
+
+  /* ---------- source switch ---------- */
+  function setSource(s) {
+    source = s;
+    document.querySelectorAll('[data-src]').forEach(b => b.setAttribute('aria-pressed', b.dataset.src === s));
+    $('fileArea').hidden = s !== 'file'; $('scArea').hidden = s !== 'sc'; $('micArea').hidden = s !== 'mic';
+    if (s !== 'mic') stopMic();
+    if (s === 'mic' && active) P[active].pause();
+  }
+  document.querySelectorAll('[data-src]').forEach(b => b.onclick = () => setSource(b.dataset.src));
+  document.querySelectorAll('button[data-mode]').forEach(b => b.onclick = () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll('button[data-mode]').forEach(x => x.setAttribute('aria-pressed', x === b));
+    if (nowState === 'music') setNow('music');
+  });
+  for (const id of ['sens', 'smooth']) {
+    const el = $(id), v = store.get(id, null);
+    if (v !== null) { el.value = v; fillRange(el); }
+    $(id + 'Val').textContent = el.value;
+    el.addEventListener('input', e => { $(id + 'Val').textContent = e.target.value; store.set(id, +e.target.value); });
+  }
+
+  /* ---------- local files ---------- */
+  function renderTracks() {
+    const ul = $('tracks'); ul.innerHTML = '';
+    tracks.forEach((t, i) => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.textContent = t.name.replace(/\.[^.]+$/, '');
+      if (i === cur) b.setAttribute('aria-current', 'true');
+      b.onclick = () => playTrack(i);
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+  $('files').onchange = e => {
+    const add = [...e.target.files].map(f => ({ name: f.name, url: URL.createObjectURL(f) }));
+    if (!add.length) return;
+    const first = tracks.length; tracks.push(...add); e.target.value = '';
+    renderTracks();
+    if (cur < 0 || audio.paused) playTrack(first);
+  };
+  function playTrack(i) {
+    if (!tracks.length) return;
+    cur = (i + tracks.length) % tracks.length;
+    ensureCtx();
+    if (!mediaSrc) { mediaSrc = actx.createMediaElementSource(audio); mediaSrc.connect(actx.destination); mediaSrc.connect(analyser); }
+    setActive('file');
+    audio.src = tracks[cur].url;
+    audio.loop = repeat === 'one';
+    audio.play().catch(() => {});
+    renderTracks(); refreshBar();
+  }
+  audio.addEventListener('ended', () => {
+    if (repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
+    const i = pickNext(cur, tracks.length, true); if (i !== null) playTrack(i); else refreshBar();
+  });
+  audio.addEventListener('play', () => { setActive('file'); refreshBar(); refreshLoop(); });
+  audio.addEventListener('pause', () => { refreshBar(); refreshLoop(); });
+  audio.addEventListener('loadedmetadata', refreshBar);
+  audio.addEventListener('timeupdate', () => { if (active === 'file') refreshBar(); });
+
+  /* ---------- SoundCloud: hidden official widget + our own playlist view ---------- */
+  let scApi = null;
+  function loadScApi() {
+    if (scApi) return scApi;
+    scApi = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://w.soundcloud.com/player/api.js'; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+    return scApi;
+  }
+
+  // quick-access library
+  let lib = store.get('scLib', []);
+  function slugTitle(url) {
+    try {
+      const parts = new URL(url).pathname.split('/').filter(p => p && !/^s-[A-Za-z0-9]+$/.test(p));
+      const t = decodeURIComponent(parts[parts.length - 1] || 'SoundCloud').replace(/[-_]+/g, ' ').trim();
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    } catch { return 'SoundCloud'; }
+  }
+  async function fetchMeta(url) {
+    try {
+      const r = await fetch('https://soundcloud.com/oembed?format=json&url=' + encodeURIComponent(url));
+      if (r.ok) { const j = await r.json(); return { title: j.title || '', art: j.thumbnail_url || '' }; }
+    } catch {}
+    return null;
+  }
+  function saveToLib(url, patch) {
+    let it = lib.find(l => l.url === url);
+    if (!it) { it = { url, title: slugTitle(url), art: '' }; lib.unshift(it); }
+    for (const [k, v] of Object.entries(patch || {})) if (v && !(k === 'art' && it.artFixed)) it[k] = v;
+    store.set('scLib', lib); renderLib();
+    return it;
+  }
+  function renderLib() {
+    const box = $('scLib'); box.innerHTML = '';
+    lib.forEach(it => {
+      const wrap = document.createElement('div'); wrap.className = 'tile';
+      const b = document.createElement('button'); b.className = 'tile-main';
+      if (it.url === sc.url) b.setAttribute('aria-current', 'true');
+      const artBox = document.createElement('span'); artBox.className = 'tile-art';
+      if (it.art) { const im = document.createElement('img'); im.alt = ''; im.loading = 'lazy'; im.src = it.art; artBox.appendChild(im); }
+      else artBox.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>';
+      const tt = document.createElement('span'); tt.className = 'tile-title'; tt.textContent = it.title;
+      b.append(artBox, tt);
+      b.onclick = () => { maybeAutoSync(); openSc(it.url, true); };
+      const x = document.createElement('button'); x.className = 'tile-x'; x.setAttribute('aria-label', 'Убрать «' + it.title + '»');
+      x.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+      x.onclick = () => { lib = lib.filter(l => l.url !== it.url); store.set('scLib', lib); renderLib(); };
+      wrap.append(b, x); box.appendChild(wrap);
+    });
+    $('scLibWrap').hidden = !lib.length;
+  }
+
+  $('scForm').onsubmit = e => {
+    e.preventDefault();
+    const url = $('scUrl').value.trim();
+    if (!/^https?:\/\/(www\.|m\.)?soundcloud\.com\/.+/i.test(url)) {
+      toast(/on\.soundcloud\.com/i.test(url) ? 'Открой короткую ссылку в браузере и скопируй полную' : 'Нужна ссылка вида soundcloud.com/…');
+      return;
+    }
+    $('scUrl').value = '';
+    maybeAutoSync();
+    openSc(url.split('?')[0].replace('//m.', '//').replace(/\/$/, ''), true);
+  };
+
+  const WIDGET_OPTS = { auto_play: false, visual: false, show_comments: false, show_reposts: false, hide_related: true, show_teaser: false, buying: false, sharing: false, download: false };
+  async function openSc(url, autoplay) {
+    try { await loadScApi(); } catch { scApi = null; toast('Не удалось загрузить SoundCloud. Проверь интернет'); return; }
+    if (active === 'sc' && sc.playing) sc.widget.pause();
+    Object.assign(sc, { url, ready: false, playing: false, pos: 0, dur: 0, sounds: [], index: -1, autoplay: !!autoplay });
+    const it = saveToLib(url);
+    sc.title = it.title; sc.cover = it.art;
+    fetchMeta(url).then(m => {
+      if (!m) return;
+      const upd = saveToLib(url, m);
+      if (sc.url === url) { sc.title = upd.title; sc.cover = upd.art; renderPlHead(); }
+    });
+    $('scNow').hidden = false; renderPlHead(); renderPl(); renderLib();
+    const f = $('scFrame');
+    if (!sc.widget) {
+      f.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(url) + '&' +
+        Object.entries(WIDGET_OPTS).map(([k, v]) => k + '=' + v).join('&');
+      bindWidget(f);
+    } else sc.widget.load(url, WIDGET_OPTS);
+  }
+
+  function loadSounds(tries, first) {
+    sc.widget.getSounds(list => {
+      sc.sounds = list || [];
+      renderPl(); renderPlHead(); refreshBar();
+      if (first && sc.autoplay && sc.sounds.length) { sc.autoplay = false; scPlay(shuffle ? rnd(sc.sounds.length, -1) : 0); }
+      const it = lib.find(l => l.url === sc.url);
+      if (it && !it.art && sc.sounds[0]) saveToLib(sc.url, { art: art300(soundArt(sc.sounds[0])) });
+      if (sc.sounds.some(s => !s.title) && tries < 12) setTimeout(() => loadSounds(tries + 1), 1500);
+    });
+  }
+
+  function scPlay(i) {
+    if (!sc.widget || !sc.ready || !sc.sounds.length) return;
+    ensureCtx();
+    sc.widget.skip(i); sc.widget.play();
+    clearTimeout(sc.guard);
+    sc.guard = setTimeout(() => {
+      if (sc.playing) return;
+      showWidget(true);
+      toast('Браузер не дал включить звук. Нажми play в плеере SoundCloud');
+    }, 3000);
+  }
+  function showWidget(on) {
+    $('scFrame').classList.toggle('show', on);
+    $('scShowWidget').textContent = on ? 'Скрыть плеер SoundCloud' : 'Показать плеер SoundCloud';
+  }
+  $('scShowWidget').onclick = () => showWidget(!$('scFrame').classList.contains('show'));
+
+  function bindWidget(f) {
+    const W = window.SC.Widget, E = W.Events;
+    sc.widget = W(f);
+    sc.widget.bind(E.READY, () => { sc.ready = true; loadSounds(0, true); });
+    sc.widget.bind(E.PLAY, () => {
+      sc.playing = true; clearTimeout(sc.guard); clearTimeout(sc.after);
+      setActive('sc');
+      sc.widget.getCurrentSoundIndex(i => { sc.index = i; renderPl(); refreshBar(); loadWave(sc.sounds[i]); });
+      sc.widget.getDuration(d => { sc.dur = d; refreshBar(); });
+      renderPlHead(); refreshBar(); refreshLoop();
+    });
+    sc.widget.bind(E.PAUSE, () => { sc.playing = false; renderPlHead(); renderPl(); refreshBar(); refreshLoop(); });
+    sc.widget.bind(E.FINISH, () => {
+      sc.playing = false;
+      const i = pickNext(sc.index, sc.sounds.length, true);
+      if (i === null) { renderPlHead(); renderPl(); refreshBar(); refreshLoop(); return; }
+      if (i === sc.index) {
+        // the widget jumps to the next track by itself; pull it back to the same one
+        const keep = sc.index;
+        sc.widget.skip(keep); sc.widget.seekTo(0); sc.widget.play();
+        sc.after = setTimeout(() => sc.widget.getCurrentSoundIndex(now => { if (now !== keep) { sc.widget.skip(keep); sc.widget.play(); } }), 600);
+        return;
+      }
+      // a playlist widget moves on by itself; step in for shuffle / wrap-around, or if it stalls
+      if (shuffle || i !== sc.index + 1) scPlay(i);
+      else sc.after = setTimeout(() => { if (!sc.playing) scPlay(i); }, 1500);
+    });
+    sc.widget.bind(E.PLAY_PROGRESS, d => {
+      sc.pos = d.currentPosition; sc.posAt = performance.now();
+      // repeat one: rewind just before the end so the widget never moves on
+      if (repeat === 'one' && sc.dur > 2000 && sc.pos >= sc.dur - 700 && !sc.rewinding) {
+        sc.rewinding = true; sc.widget.seekTo(0);
+        setTimeout(() => { sc.rewinding = false; }, 1500);
+      }
+      if (active === 'sc') refreshBar();
+    });
+    sc.widget.bind(E.ERROR, () => toast('SoundCloud не открыл ссылку. Плейлист должен быть открытым или по секретной ссылке'));
+  }
+
+  function renderPlHead() {
+    const art = sc.cover || art300(soundArt(sc.sounds[0]));
+    const img = $('plArt');
+    if (art) { if (img.getAttribute('src') !== art) img.src = art; img.hidden = false; } else img.hidden = true;
+    $('plTitle').textContent = sc.title || 'Плейлист';
+    const n = sc.sounds.length;
+    const total = sc.sounds.reduce((a, s) => a + (s.duration || 0), 0);
+    $('plSub').textContent = !sc.ready ? 'Загрузка…'
+      : n ? `${n} ${plural(n, 'трек', 'трека', 'треков')}` + (total ? ` · ${Math.round(total / 60000)} мин` : '') : 'Нет треков';
+    $('plPlay').innerHTML = sc.playing
+      ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>Пауза'
+      : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Слушать';
+  }
+  $('plPlay').onclick = () => { if (!sc.playing) maybeAutoSync(); P.sc.toggle(); };
+  $('plShuffle').onclick = () => { maybeAutoSync(); if (!shuffle) $('barShuffle').click(); scPlay(rnd(sc.sounds.length, sc.index)); };
+
+  function renderPl() {
+    const ol = $('plTracks'); ol.innerHTML = '';
+    sc.sounds.forEach((s, i) => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.className = 'trk';
+      if (i === sc.index) { b.setAttribute('aria-current', 'true'); if (sc.playing) b.classList.add('playing'); }
+      const artBox = document.createElement('span'); artBox.className = 'trk-art';
+      const a = soundArt(s);
+      if (a) { const im = document.createElement('img'); im.alt = ''; im.loading = 'lazy'; im.src = a; artBox.appendChild(im); }
+      const eq = document.createElement('span'); eq.className = 'eq'; eq.innerHTML = '<i></i><i></i><i></i>'; artBox.appendChild(eq);
+      const meta = document.createElement('span'); meta.className = 'trk-meta';
+      const t = document.createElement('span'); t.className = 'trk-title'; t.textContent = s.title || 'Загрузка…';
+      const u = document.createElement('span'); u.className = 'trk-artist'; u.textContent = s.user ? s.user.username : '';
+      meta.append(t, u);
+      const d = document.createElement('span'); d.className = 'trk-dur'; d.textContent = s.duration ? fmt(s.duration / 1000) : '';
+      b.append(artBox, meta, d);
+      b.onclick = () => { if (!sc.playing) maybeAutoSync(); i === sc.index ? P.sc.toggle() : scPlay(i); };
+      li.appendChild(b); ol.appendChild(li);
+    });
+  }
+  renderLib();
+
+  // capture this tab's own sound so the beat can be detected (Chrome / Edge on a computer)
+  if (!canCapture) $('scSync').hidden = true;
+  async function startTabCapture() {
+    try {
+      ensureCtx();
+      const s = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 1 },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+        preferCurrentTab: true, selfBrowserSurface: 'include', systemAudio: 'include', surfaceSwitching: 'exclude'
+      });
+      if (!s.getAudioTracks().length) {
+        s.getTracks().forEach(t => t.stop());
+        toast('Звук не передан. Включи «Также поделиться звуком вкладки»'); return;
+      }
+      tabStream = s; tabSrc = actx.createMediaStreamSource(s);
+      s.getTracks().forEach(t => t.addEventListener('ended', stopTabCapture));
+      $('scSync').setAttribute('aria-pressed', 'true'); $('scSyncLabel').textContent = 'Подсветка включена';
+      $('scSyncHint').hidden = true;
+      refreshBar(); refreshLoop();
+    } catch (e) { if (e.name !== 'NotAllowedError') toast('Не удалось получить звук вкладки'); }
+  }
+  function stopTabCapture() {
+    if (!tabStream) return;
+    tabStream.getTracks().forEach(t => t.stop());
+    try { tabSrc.disconnect(); } catch {}
+    tabStream = null; tabSrc = null;
+    $('scSync').setAttribute('aria-pressed', 'false'); $('scSyncLabel').textContent = 'Точнее: по звуку вкладки';
+    refreshBar(); refreshLoop();
+  }
+  function maybeAutoSync() {
+    if (!canCapture || tabStream || syncAsked || !wave.failed) return;
+    syncAsked = true;
+    $('scSyncHint').hidden = false;
+    toast('Выбери эту вкладку и включи «Поделиться звуком вкладки»');
+    startTabCapture();
+  }
+  $('barSync').onclick = () => { $('scSyncHint').hidden = false; startTabCapture(); };
+  $('scSync').onclick = () => {
+    if (tabStream) return stopTabCapture();
+    $('scSyncHint').hidden = false; startTabCapture();
+  };
+
+  /* ---------- microphone ---------- */
+  async function startMic() {
+    try {
+      ensureCtx();
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      micSrc = actx.createMediaStreamSource(micStream);
+      $('micBtn').textContent = 'Остановить'; refreshLoop();
+    } catch { toast('Нет доступа к микрофону'); }
+  }
+  function stopMic() {
+    if (!micStream) return;
+    micStream.getTracks().forEach(t => t.stop());
+    try { micSrc.disconnect(); } catch {}
+    micStream = null; micSrc = null;
+    $('micBtn').textContent = 'Слушать микрофон'; refreshLoop();
+  }
+  $('micBtn').onclick = () => micStream ? stopMic() : startMic();
+  function stopAllMusic() { if (active) P[active].pause(); stopMic(); }
+
+  /* ---------- SoundCloud waveform: drives the light without a microphone ---------- */
+  // The official widget hands us each track's public waveform (the loudness picture SoundCloud shows).
+  // Knowing the play position, we light the strip from it. Real audio (tab capture / mic) wins when present.
+  const wave = { key: null, n: null, onset: null, ready: false, failed: false };
+  function waveInfo() {
+    const el = $('waveInfo'); if (!el) return;
+    el.textContent = tabSrc ? 'Подсветка: по звуку вкладки (самый точный режим).'
+      : wave.ready ? 'Подсветка: по форме волны трека' + (wave.tempo ? `, ~${Math.round(wave.tempo.bpm)} BPM` : '') + ', без микрофона.'
+      : wave.failed ? 'Форма волны недоступна, лента мигает в ритм 120 BPM. Для точной подсветки включи звук вкладки или микрофон.'
+      : '';
+  }
+  async function loadWave(s) {
+    const key = s && (s.id || s.waveform_url || s.title);
+    if (!s || wave.key === key) return;
+    Object.assign(wave, { key, n: null, onset: null, ready: false, failed: false });
+    let u = s.waveform_url;
+    if (!u) { wave.failed = true; waveInfo(); refreshLoop(); return; }
+    u = u.replace(/\.png(\?.*)?$/, '.json');
+    try {
+      const j = await (await fetch(u)).json();
+      if (wave.key !== key || !Array.isArray(j.samples) || !j.samples.length) throw 0;
+      const raw = j.samples, sorted = [...raw].sort((a, b) => a - b);
+      const lo = sorted[Math.floor(sorted.length * 0.1)], hi = sorted[Math.floor(sorted.length * 0.97)] || 1;
+      const n = raw.map(v => clamp((v - lo) / Math.max(hi - lo, 1), 0, 1));
+      const onset = n.map((v, i) => { let m = 0, c = 0; for (let k = Math.max(0, i - 4); k < i; k++) { m += n[k]; c++; } return c ? v - m / c : 0; });
+      const dur = s.duration || sc.dur;
+      const tempo = dur ? analyseTempo(n, dur / n.length) : null;
+      Object.assign(wave, { n, onset, tempo, ready: true });
+      lastBeatNo = -1;
+    } catch { if (wave.key === key) wave.failed = true; }
+    waveInfo(); refreshBar(); refreshLoop();
+  }
+  // Find tempo and beat phase from the waveform: score a beat grid (bpm, phase) by how well it lands on loudness rises.
+  function analyseTempo(n, msPer) {
+    const L = n.length;
+    const o = n.map((v, i) => i ? Math.max(0, v - n[i - 1]) : 0);
+    const val = x => { const i = Math.floor(x), f = x - i; return i + 1 < L ? o[i] * (1 - f) + o[i + 1] * f : 0; };
+    const prior = bpm => Math.exp(-Math.pow(Math.log2(bpm / 120), 2) / 0.5);     // prefer 85–170 BPM
+    const score = (per, ph) => { let s = 0, c = 0; for (let x = ph; x < L; x += per) { s += val(x); c++; } return c ? s / c : 0; };
+    function search(lo, hi, step, phases) {
+      let best = { sc: -1 };
+      for (let bpm = lo; bpm <= hi; bpm += step) {
+        const per = 60000 / bpm / msPer;
+        if (per < 1.5) continue;
+        for (let k = 0; k < phases; k++) {
+          const ph = per * k / phases, sc = score(per, ph) * prior(bpm);
+          if (sc > best.sc) best = { sc, bpm, per, ph };
+        }
+      }
+      return best;
+    }
+    const coarse = search(70, 180, 0.5, 16);
+    if (coarse.sc <= 0) return null;
+    const fine = search(Math.max(60, coarse.bpm - 1), coarse.bpm + 1, 0.02, 48);
+    // a waveform sample covers a whole window; the hit sits on average mid-window
+    return { bpm: fine.bpm, periodMs: fine.per * msPer, phaseMs: (fine.ph + 0.5) * msPer };
+  }
+  let lastBeatNo = -1;
+  const scNow = () => sc.playing ? sc.pos + (performance.now() - (sc.posAt || performance.now())) : sc.pos;
+  const scDirect = () => active === 'sc' && sc.playing && !tabSrc && !micSrc;
+  let waveIdx = -1, beatPeak = 1, hueTarget = 0;
+
+  /* ---------- routing + beat-driven light ---------- */
+  let tabLinked = false, micLinked = false;
+  function refreshLoop() {
+    if (!analyser) { if (scDirect()) ensureCtx(); else return; }
+    waveInfo();
+    const wantTab = !!tabSrc && active === 'sc' && sc.playing;
+    if (wantTab !== tabLinked) { try { wantTab ? tabSrc.connect(analyser) : tabSrc.disconnect(analyser); } catch {} tabLinked = wantTab; }
+    if (!tabSrc) tabLinked = false;
+    const wantMic = !!micSrc;
+    if (wantMic !== micLinked) { try { wantMic ? micSrc.connect(analyser) : micSrc.disconnect(analyser); } catch {} micLinked = wantMic; }
+    if (!micSrc) micLinked = false;
+    const run = wantMic || wantTab || (active === 'file' && !audio.paused) || scDirect();
+    run ? startLoop() : stopLoop();
+  }
+
+  let freq, bassAvg = 0, loudAvg = 0, lastBeat = 0, lastSend = 0, level = 0, hue = 0;
+  function startLoop() {
+    if (raf) return;
+    stopAutoFx();
+    freq = new Uint8Array(analyser.frequencyBinCount);
+    bassAvg = 0; loudAvg = 0; level = 0; hue = hueTarget = sel.h; lastBeatNo = -1;
+    setNow('music');
+    raf = 1; startClock();
+    wake(true);
+  }
+  function stopLoop() {
+    if (!raf) return;
+    raf = 0; stopClock(); wake(false);
+    $('meter').firstElementChild.style.transform = 'scaleX(0)';
+    $('barLevel').style.transform = 'scaleX(0)';
+    send('color', CMD.color(currentRGB()));   // back to the chosen colour
+    setNow('color');
+  }
+  /* The clock lives on the audio thread, so it keeps ticking when the tab is in the background
+     or the window is minimised (requestAnimationFrame and timers are paused/throttled there). */
+  let clockNode = null, clockTimer = 0, clockReady = null;
+  const CLOCK_SRC = `class LentaClock extends AudioWorkletProcessor {
+    constructor() { super(); this.n = 0; }
+    process() { this.n += 128; if (this.n >= 1024) { this.n = 0; this.port.postMessage(0); } return true; }
+  }
+  registerProcessor('lenta-clock', LentaClock);`;
+  function startClock() {
+    const tick = () => { if (raf) loop(performance.now()); };
+    if (actx.audioWorklet && window.AudioWorkletNode) {
+      clockReady = clockReady || actx.audioWorklet.addModule(URL.createObjectURL(new Blob([CLOCK_SRC], { type: 'application/javascript' })));
+      clockReady.then(() => {
+        if (!raf || clockNode) return;
+        clockNode = new AudioWorkletNode(actx, 'lenta-clock', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
+        clockNode.port.onmessage = tick;
+        clockNode.connect(actx.destination);          // outputs silence; keeps the node running
+      }).catch(() => { if (raf && !clockTimer) clockTimer = setInterval(tick, 25); });
+    } else clockTimer = setInterval(tick, 25);
+    setTimeout(() => { if (raf && actx.state !== 'running' && !clockTimer) clockTimer = setInterval(tick, 25); }, 600);
+  }
+  function stopClock() {
+    if (clockNode) { clockNode.port.onmessage = null; clockNode.disconnect(); clockNode = null; }
+    clearInterval(clockTimer); clockTimer = 0;
+  }
+
+  /* keep the phone screen on while the light show runs (optional) */
+  let wakeLock = null;
+  async function wake(on) {
+    try {
+      if (on && $('keepAwake').checked && 'wakeLock' in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    } catch {}
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && raf) wake(true); });
+  $('keepAwake').checked = store.get('keepAwake', true);
+  $('keepAwake').onchange = e => { store.set('keepAwake', e.target.checked); wake(e.target.checked && !!raf); };
+  if (!('wakeLock' in navigator)) $('keepAwakeRow').hidden = true;
+
+  function loop(t) {
+    let beat = false, body = 0; beatPeak = 1;
+    const sensV = +$('sens').value;
+    if (scDirect()) {
+      const pos = scNow() + 90;                                   // small lead for Bluetooth latency
+      if (wave.ready && sc.dur > 0) {
+        const i = clamp(Math.floor(pos / sc.dur * wave.n.length), 0, wave.n.length - 1);
+        body = wave.n[i];
+        if (wave.tempo) {
+          // beats come from the tempo grid, so they land on the beat instead of on every loudness wiggle
+          const { periodMs, phaseMs } = wave.tempo;
+          const no = Math.floor((pos - phaseMs) / periodMs);
+          if (no !== lastBeatNo) {
+            const every = sensV >= 7 ? 1 : sensV >= 4 ? 1 : 2;          // low sensitivity: every other beat
+            beat = lastBeatNo !== -1 && no % every === 0 && body > 0.12;
+            lastBeatNo = no;
+            beatPeak = 0.35 + 0.65 * body;                          // quiet parts flash softly, drops hard
+            if (sensV <= 3 && body < 0.45) beat = false;           // low sensitivity: skip quiet beats
+          }
+        } else if (i !== waveIdx) {
+          waveIdx = i;
+          beat = wave.onset[i] > 0.26 - sensV * 0.019 && body > 0.25 && t - lastBeat > 250;
+        }
+      } else {
+        const ph = (pos % 500) / 500;                               // no waveform: steady 120 BPM pulse
+        beat = ph < 0.08 && t - lastBeat > 300; body = 0.4;
+      }
+      if (beat) lastBeat = t;
+    } else {
+    analyser.getByteFrequencyData(freq);
+    const hz = actx.sampleRate / analyser.fftSize;
+    const b0 = Math.max(1, Math.round(40 / hz)), b1 = Math.round(160 / hz), l1 = Math.round(8000 / hz);
+    let bass = 0; for (let i = b0; i <= b1; i++) bass += freq[i]; bass /= (b1 - b0 + 1);
+    let loud = 0; for (let i = 1; i <= l1; i++) loud += freq[i]; loud /= l1;
+
+    bassAvg = bassAvg ? bassAvg * 0.95 + bass * 0.05 : bass;
+    loudAvg = loudAvg ? loudAvg * 0.98 + loud * 0.02 : loud;
+    const k = 1.55 - sensV * 0.045;             // 1 → 1.5, 10 → 1.1
+    beat = bass > bassAvg * k && bass > 70 && t - lastBeat > 220;
+    if (beat) lastBeat = t;
+    body = clamp(loud / Math.max(loudAvg * 1.6, 1), 0, 1);
+    }
+    const sm = +$('smooth').value;                                  // 1 = резко … 10 = плавно
+    if (mode === 'strobe') level = beat ? 1 : level * 0.72;
+    else level = beat ? Math.max(level, beatPeak) : Math.max(level * (0.86 + sm * 0.011), 0.12 + body * 0.45);
+    if (mode === 'rainbow') {
+      if (beat) hueTarget += 64 - sm * 4.4;                         // 1 → 60° за бит, 10 → 20°
+      hueTarget += 0.12;
+      hue += (hueTarget - hue) * (0.24 - sm * 0.019);               // colour glides instead of jumping
+      if (hue > 1e5) { hue -= 36000; hueTarget -= 36000; }
+    }
+
+    const sx = `scaleX(${level.toFixed(3)})`;
+    $('meter').firstElementChild.style.transform = sx; $('barLevel').style.transform = sx;
+    let rgb;
+    if (mode === 'rainbow') rgb = hsv2rgb(hue, 1, level);
+    else if (mode === 'mono') rgb = currentRGB().map(c => Math.round(c * level));
+    else rgb = [255, 255, 255].map(c => Math.round(c * level));
+    const full = mode === 'rainbow' ? hsv2rgb(hue, 1, 1) : mode === 'mono' ? currentRGB() : [255, 255, 255];
+    paintStrip(full, level);
+    if (t - lastSend < 40 || !ch) return;                      // ≈25 команд в секунду
+    lastSend = t;
+    send('color', CMD.color(rgb));
+  }
+
+/* ================= Timer: sleep timer + weekly schedule ================= */
+  const pad2 = n => String(n).padStart(2, '0');
+  const DAY_SHORT = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  function daysText(days) {
+    const set = [...new Set(days)].sort();
+    if (set.length === 7) return 'Каждый день';
+    if (set.join() === '1,2,3,4,5') return 'По будням';
+    if (set.join() === '0,6') return 'По выходным';
+    return [1, 2, 3, 4, 5, 6, 0].filter(d => set.includes(d)).map(d => DAY_SHORT[d]).join(', ');
+  }
+
+  async function timerAction(act, why) {
+    if (!ch) await autoConnect(true);
+    if (!ch) { toast(`${why}: лента не подключена`); return; }
+    setPower(act === 'on');
+    if (act === 'on') setTimeout(() => send('color', CMD.color(currentRGB())), 300);
+    toast(`${why}: лента ${act === 'on' ? 'включена' : 'выключена'}`);
+  }
+
+  // sleep timer
+  let sleepAt = store.get('sleepAt', 0);
+  if (sleepAt && sleepAt < Date.now()) sleepAt = 0;
+  function paintSleep() {
+    const left = sleepAt ? Math.max(0, sleepAt - Date.now()) : 0;
+    $('sleepState').hidden = !sleepAt;
+    document.querySelectorAll('#sleepChips button').forEach(b => b.setAttribute('aria-pressed', 'false'));
+    if (!sleepAt) return;
+    const d = new Date(sleepAt);
+    $('sleepAtText').textContent = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const m = Math.ceil(left / 60000);
+    $('sleepLeft').textContent = m >= 60 ? `(через ${Math.floor(m / 60)} ч ${m % 60} мин)` : `(через ${m} мин)`;
+  }
+  document.querySelectorAll('#sleepChips button').forEach(b => b.onclick = () => {
+    sleepAt = Date.now() + (+b.dataset.min) * 60000; store.set('sleepAt', sleepAt); paintSleep();
+    b.setAttribute('aria-pressed', 'true');
+  });
+  $('sleepCancel').onclick = () => { sleepAt = 0; store.set('sleepAt', 0); paintSleep(); };
+
+  // weekly schedule
+  let sched = store.get('sched', []);          // [{ id, time: 'HH:MM', days: [0..6], act: 'on'|'off', on: bool }]
+  let fired = store.get('schedFired', {});     // id -> 'YYYY-MM-DD' of the last run
+  function saveSched() { store.set('sched', sched); renderSched(); }
+  function renderSched() {
+    const ul = $('schedList'); ul.innerHTML = '';
+    [...sched].sort((a, b) => a.time.localeCompare(b.time)).forEach(s => {
+      const li = document.createElement('li'); li.className = 'sched-item'; li.dataset.on = s.on;
+      const t = document.createElement('span'); t.className = 'sched-time'; t.textContent = s.time;
+      const meta = document.createElement('span'); meta.className = 'sched-meta';
+      const b = document.createElement('b'); b.textContent = s.act === 'on' ? 'Включить' : 'Выключить';
+      const d = document.createElement('span'); d.textContent = daysText(s.days);
+      meta.append(b, d);
+      const sw = document.createElement('button'); sw.className = 'switch'; sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-checked', s.on); sw.setAttribute('aria-label', `${b.textContent} в ${s.time}`);
+      sw.onclick = () => { s.on = !s.on; saveSched(); };
+      const del = document.createElement('button'); del.className = 'del'; del.setAttribute('aria-label', `Удалить: ${b.textContent} в ${s.time}`);
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+      del.onclick = () => { sched = sched.filter(x => x.id !== s.id); saveSched(); toast('Удалено из расписания'); };
+      li.append(t, meta, sw, del); ul.appendChild(li);
+    });
+    $('schedEmpty').hidden = sched.length > 0;
+  }
+
+  let formAct = 'on';
+  document.querySelectorAll('#schedForm [data-act]').forEach(b => b.onclick = () => {
+    formAct = b.dataset.act;
+    document.querySelectorAll('#schedForm [data-act]').forEach(x => x.setAttribute('aria-pressed', x === b));
+  });
+  document.querySelectorAll('#schDays button').forEach(b => b.onclick = () => b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true'));
+  const PRESETS = { all: [0, 1, 2, 3, 4, 5, 6], work: [1, 2, 3, 4, 5], weekend: [0, 6] };
+  document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
+    const set = PRESETS[b.dataset.preset];
+    document.querySelectorAll('#schDays button').forEach(x => x.setAttribute('aria-pressed', set.includes(+x.dataset.d)));
+  });
+  $('schedForm').onsubmit = e => {
+    e.preventDefault();
+    const time = $('schTime').value;
+    const days = [...document.querySelectorAll('#schDays button[aria-pressed=true]')].map(x => +x.dataset.d);
+    if (!time) { toast('Укажи время'); return; }
+    if (!days.length) { toast('Выбери хотя бы один день'); return; }
+    sched.push({ id: Date.now().toString(36), time, days, act: formAct, on: true });
+    saveSched();
+    toast(`${formAct === 'on' ? 'Включение' : 'Выключение'} в ${time}, ${daysText(days).toLowerCase()}`);
+  };
+
+  // the check runs every 10 s; a 2-minute window covers background-tab timer throttling
+  function checkTimers() {
+    const now = new Date(), today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    const mins = now.getHours() * 60 + now.getMinutes();
+    for (const s of sched) {
+      if (!s.on || !s.days.includes(now.getDay()) || fired[s.id] === today) continue;
+      const [h, m] = s.time.split(':').map(Number), at = h * 60 + m;
+      if (mins >= at && mins < at + 2) {
+        fired[s.id] = today; store.set('schedFired', fired);
+        timerAction(s.act, 'Расписание');
+      }
+    }
+    if (sleepAt && Date.now() >= sleepAt) {
+      sleepAt = 0; store.set('sleepAt', 0);
+      timerAction('off', 'Таймер сна');
+    }
+    paintSleep();
+  }
+  setInterval(checkTimers, 10000);
+  renderSched(); paintSleep();
+
+/* ================= Fullscreen ================= */
+  const root = document.documentElement;
+  const fsReq = root.requestFullscreen || root.webkitRequestFullscreen;
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  if (fsReq && (document.fullscreenEnabled || document.webkitFullscreenEnabled)) $('fsBtn').hidden = false;
+  function paintFs() {
+    const on = !!fsEl();
+    $('fsBtn').setAttribute('aria-pressed', on);
+    $('fsBtn').setAttribute('aria-label', on ? 'Выйти из полноэкранного режима' : 'Во весь экран');
+    $('fsIcon').setAttribute('d', on ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5');
+  }
+  $('fsBtn').onclick = () => {
+    if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else Promise.resolve(fsReq.call(root, { navigationUI: 'hide' })).catch(() => toast('Браузер не разрешил полный экран'));
+  };
+  document.addEventListener('fullscreenchange', paintFs);
+  document.addEventListener('webkitfullscreenchange', paintFs);
+
+  /* ================= Strip preview ================= */
+  const stripEl = $('strip');
+  for (let i = 0; i < 24; i++) { const d = document.createElement('i'); d.style.setProperty('--h', Math.round(i * 360 / 24)); stripEl.appendChild(d); }
+  let nowState = 'color', lastKind = 'color';
+  const MODE_NAMES = { rainbow: 'Радуга', mono: 'Мой цвет', strobe: 'Вспышки' };
+  function paintStrip(rgb, l = 1) {
+    stripEl.style.setProperty('--c', `rgb(${rgb})`);
+    stripEl.style.setProperty('--l', l.toFixed(3));
+  }
+  function setNow(kind) {
+    if (!powered && kind !== 'off') { lastKind = kind; kind = 'off'; }
+    nowState = kind; if (kind !== 'off') lastKind = kind;
+    stripEl.className = 'strip ' + kind;
+    let title, sub;
+    if (kind === 'off') { title = 'Выключено'; sub = 'Нажми кнопку питания, чтобы включить'; }
+    else if (kind === 'fx') { title = 'Режим ' + fx; sub = autoTimer ? 'Автосмена каждые 10 секунд' : 'Встроенный эффект контроллера'; }
+    else if (kind === 'music') { title = 'Под музыку'; sub = MODE_NAMES[mode]; }
+    else { const rgb = currentRGB(); paintStrip(rgb, 1); title = 'Статичный цвет'; sub = `RGB ${rgb.join(' · ')}`; }
+    stripEl.title = title + (sub ? ' · ' + sub : '');
+  }
+
+  /* ================= Settings ================= */
+  $('order').value = store.get('order', 'GRB');
+  $('order').onchange = e => { store.set('order', e.target.value); applyColor(); };
+  $('gamma').checked = store.get('gamma', true);
+  $('gamma').onchange = e => { store.set('gamma', e.target.checked); applyColor(); };
+  $('testRed').onclick = () => { if (needConn()) return; send('color', CMD.color([255, 0, 0])); };
+
+  applyColor(false);
+  // the Safari extension may attach a moment after the page loads
+  if (!getBT()) setTimeout(() => { if (!getBT()) noBluetooth(); }, 1200);
+})();
+</script>
+</body>
+</html>
