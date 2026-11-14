@@ -151,6 +151,11 @@
   #tracks button { width: 100%; text-align: left; min-height: 44px; padding: 8px 12px; border: 0; border-radius: var(--r-sm);
     background: none; color: var(--muted); overflow-wrap: anywhere; font-size: 15px; }
   #tracks button[aria-current=true] { background: var(--surface-2); color: var(--text); font-weight: 500; }
+  #tracks li { display: flex; align-items: center; gap: 4px; }
+  #tracks li > button:first-child { flex: 1; min-width: 0; }
+  #tracks .trk-del { flex: none; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; color: var(--faint); }
+  #tracks .trk-del svg { width: 18px; height: 18px; }
+  @media (hover: hover) and (pointer: fine) { #tracks .trk-del:hover { color: var(--bad); background: rgba(255,255,255,.06); } }
   .url-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 14px; }
   .url-row input { min-height: 44px; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); padding: 0 14px; }
   #scFrame { width: 100%; height: 300px; border: 0; border-radius: var(--r-md); margin-top: 12px; background: #fff; }
@@ -616,6 +621,7 @@
           Добавить музыку</label>
         <input type="file" id="files" accept="audio/*" multiple class="sr">
         <ul id="tracks"></ul>
+        <p class="hint" id="tracksHint" hidden>Треки сохраняются в этом браузере и остаются после перезагрузки.</p>
       </div>
 
       <div id="scArea" hidden>
@@ -1316,24 +1322,88 @@
     el.addEventListener('input', e => { paint(); store.set(id, +e.target.value); });
   }
 
-  /* ---------- local files ---------- */
+  /* ---------- local files: kept in IndexedDB so they survive a reload ---------- */
+  let tdbP = null;
+  function tdb() {
+    if (!tdbP) tdbP = new Promise((res, rej) => {
+      if (!window.indexedDB) return rej(new Error('no idb'));
+      const r = indexedDB.open('lenta', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('tracks', { keyPath: 'id', autoIncrement: true });
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    return tdbP;
+  }
+  async function tdbDo(mode, fn) {
+    const db = await tdb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('tracks', mode), req = fn(tx.objectStore('tracks'));
+      tx.oncomplete = () => res(req && req.result);
+      tx.onerror = tx.onabort = () => rej(tx.error || (req && req.error));
+    });
+  }
+  async function saveTrack(f) {
+    const rec = { name: f.name, size: f.size, type: f.type || 'audio/mpeg', added: Date.now() };
+    try { return await tdbDo('readwrite', st => st.add({ ...rec, blob: f })); }
+    catch (e) {
+      if (e && e.name === 'QuotaExceededError') throw e;
+      const buf = await f.arrayBuffer();                           // old WebKit can't store Blobs
+      return tdbDo('readwrite', st => st.add({ ...rec, blob: buf }));
+    }
+  }
+  async function loadSavedTracks() {
+    try {
+      const recs = (await tdbDo('readonly', st => st.getAll())) || [];
+      const have = new Set(tracks.map(t => t.id));
+      const add = recs.filter(r => !have.has(r.id)).map(r => {
+        const blob = r.blob instanceof Blob ? r.blob : new Blob([r.blob], { type: r.type });
+        return { id: r.id, name: r.name, size: r.size, url: URL.createObjectURL(blob) };
+      });
+      if (!add.length) return;
+      tracks.unshift(...add); if (cur >= 0) cur += add.length;
+      renderTracks();
+    } catch {}
+  }
   function renderTracks() {
     const ul = $('tracks'); ul.innerHTML = '';
     tracks.forEach((t, i) => {
-      const li = document.createElement('li'), b = document.createElement('button');
+      const li = document.createElement('li'), b = document.createElement('button'), del = document.createElement('button');
       b.textContent = t.name.replace(/\.[^.]+$/, '');
       if (i === cur) b.setAttribute('aria-current', 'true');
       b.onclick = () => playTrack(i);
-      li.appendChild(b); ul.appendChild(li);
+      del.className = 'trk-del'; del.setAttribute('aria-label', 'Удалить ' + b.textContent);
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+      del.onclick = () => removeTrack(i);
+      li.append(b, del); ul.appendChild(li);
     });
+    $('tracksHint').hidden = !tracks.some(t => t.id != null);
   }
-  $('files').onchange = e => {
-    const add = [...e.target.files].map(f => ({ name: f.name, url: URL.createObjectURL(f) }));
-    if (!add.length) return;
-    const first = tracks.length; tracks.push(...add); e.target.value = '';
+  function removeTrack(i) {
+    const t = tracks[i]; if (!t) return;
+    if (i === cur) { audio.pause(); audio.removeAttribute('src'); audio.load(); cur = -1; }
+    else if (i < cur) cur--;
+    tracks.splice(i, 1);
+    URL.revokeObjectURL(t.url);
+    if (t.id != null) tdbDo('readwrite', st => st.delete(t.id)).catch(() => {});
+    renderTracks(); refreshBar(); refreshLoop();
+  }
+  $('files').onchange = async e => {
+    const files = [...e.target.files]; e.target.value = '';
+    const fresh = files.filter(f => !tracks.some(t => t.name === f.name && t.size === f.size));
+    if (!fresh.length) { if (files.length) toast('Эти треки уже в списке'); return; }
+    const add = fresh.map(f => ({ id: null, name: f.name, size: f.size, url: URL.createObjectURL(f) }));
+    const first = tracks.length; tracks.push(...add);
     renderTracks();
     if (cur < 0 || audio.paused) playTrack(first);
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+    let failed = 0;
+    for (let k = 0; k < fresh.length; k++) {
+      try { add[k].id = await saveTrack(fresh[k]); }
+      catch (err) { failed++; if (err && err.name === 'QuotaExceededError') { failed += fresh.length - k - 1; break; } }
+    }
+    renderTracks();
+    if (failed) toast(failed === fresh.length ? 'Не удалось сохранить: треки пропадут после перезагрузки' : `Не хватило места: ${failed} ${plural(failed, 'трек', 'трека', 'треков')} не сохранено`);
   };
+  loadSavedTracks();
   function playTrack(i) {
     if (!tracks.length) return;
     cur = (i + tracks.length) % tracks.length;
