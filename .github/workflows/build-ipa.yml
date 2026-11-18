@@ -6,7 +6,7 @@ on:
   push:
     paths-ignore:
       - "apps.json"
-      - "**.md"
+      - "**.md"  
       - "android/**"
       - ".well-known/**"
       - ".github/workflows/build-apk.yml"
