@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.lenta.remote",
+      "sha256_cert_fingerprints": ["AB:C6:98:8A:C4:D1:26:6D:D9:CA:17:51:E9:79:E0:D7:05:DD:60:09:31:BA:A7:34:74:EE:F3:68:DE:39:EB:52"]
+    }
+  }
+]
