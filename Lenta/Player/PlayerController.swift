@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import MediaPlayer
 import UIKit
+import SwiftUI
 
 /// Один плеер на все источники: очередь треков, случайный порядок, повтор, экран блокировки.
 final class PlayerController: ObservableObject {
@@ -26,6 +27,9 @@ final class PlayerController: ObservableObject {
     @Published private(set) var shuffle: Bool = Prefs.get("shuffle", false)
     @Published private(set) var repeatMode: Repeat = Prefs.get("repeat", Repeat.off)
     @Published var showFull = false
+    /// Плеер внизу: большая карточка или компактная полоска
+    @Published private(set) var expanded = true
+    private var expandedAt = Date.distantPast
 
     private var bag = Set<AnyCancellable>()
     private var artCache: (String, UIImage)?
@@ -68,11 +72,26 @@ final class PlayerController: ObservableObject {
         return s.web.dur > 0 ? s.web.dur / 1000 : c.duration
     }
 
+    // MARK: - Карточка внизу
+
+    func setExpanded(_ on: Bool) {
+        guard on != expanded else { return }
+        if on { expandedAt = Date() }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { expanded = on }
+    }
+
+    /// Коснулись страницы или прокрутили — сворачиваем (но не сразу после раскрытия)
+    func collapseFromPage() {
+        guard expanded, has, Date().timeIntervalSince(expandedAt) > 0.6 else { return }
+        setExpanded(false)
+    }
+
     // MARK: - Запуск
 
     /// Играть список; start — с какого трека; nil при shuffle — со случайного
     func play(_ ids: [String], start: Int?, context: String) {
         guard !ids.isEmpty else { return }
+        if !has { setExpanded(true) }        // первый трек — показываем карточку
         queue = ids
         self.context = context
         history = []

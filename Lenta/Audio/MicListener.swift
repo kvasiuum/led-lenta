@@ -63,6 +63,7 @@ enum AudioSessionManager {
             if mic {
                 try s.setCategory(.playAndRecord, mode: .measurement,
                                   options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothA2DP])
+                try? s.setPreferredIOBufferDuration(0.005)     // микрофон отдаёт звук каждые ~5 мс, а не 23
             } else {
                 try s.setCategory(.playback, mode: .default, options: mix ? [.mixWithOthers] : [])
             }

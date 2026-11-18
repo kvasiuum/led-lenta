@@ -7,10 +7,7 @@ struct MusicTab: View {
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("Раздел музыки", selection: $music.tab) {
-                    ForEach(MusicModel.Tab.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                SegPicker(selection: $music.tab, items: MusicModel.Tab.allCases.map { ($0, $0.title) }, label: "Раздел музыки")
 
                 Group {
                     switch music.tab {
@@ -42,6 +39,7 @@ private struct TracksPanel: View {
     @State private var naming = false
     @State private var newName = ""
     @State private var confirmDelete = false
+    @State private var dropTarget: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -55,17 +53,17 @@ private struct TracksPanel: View {
                         .foregroundStyle(.black)
                         .padding(.horizontal, 18)
                         .frame(minHeight: 44)
-                        .background(Color.white, in: Capsule())
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: Web.rBtn, style: .continuous))
                 }
                 Spacer()
                 if !library.tracks.isEmpty {
                     Button(selecting ? "Готово" : "Выбрать") {
                         withAnimation(.snappy) { selecting.toggle(); selected = [] }
                     }
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
                     .padding(.horizontal, 16)
                     .frame(minHeight: 44)
-                    .glass(in: Capsule(), interactive: true)
+                    .webFill()
                     .buttonStyle(.plain)
                 }
             }
@@ -85,8 +83,14 @@ private struct TracksPanel: View {
                             else { player.play(library.tracks.map(\.id), start: i, context: "Все треки") }
                         }
                         .contextMenu { if !selecting { rowMenu(t) } }
+                        // долгое нажатие и перетаскивание — поменять порядок
+                        .reorderable(id: t.id, target: $dropTarget) { library.moveTrack($0, to: t.id) }
                     }
                 }
+            }
+
+            if library.tracks.count > 1 && !selecting {
+                Hint("Зажми трек и перетащи, чтобы поменять порядок.")
             }
 
             if selecting && !selected.isEmpty {
@@ -102,12 +106,12 @@ private struct TracksPanel: View {
                                 Button(p.name) { library.addToPlaylist(p.id, ordered(selected)); done("Добавлено в «\(p.name)»") }
                             }
                         } label: {
-                            Image(systemName: "text.badge.plus").frame(width: 46, height: 46).glass(in: Circle())
+                            Image(systemName: "text.badge.plus").frame(width: 44, height: 44).webFill()
                         }
                         .disabled(library.playlists.isEmpty)
                         .accessibilityLabel("Добавить в плейлист")
                         Button(role: .destructive) { confirmDelete = true } label: {
-                            Image(systemName: "trash").foregroundStyle(.red).frame(width: 46, height: 46).glass(in: Circle())
+                            Image(systemName: "trash").foregroundStyle(Web.bad).frame(width: 44, height: 44).webFill()
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Удалить выбранные")
@@ -147,6 +151,8 @@ private struct TracksPanel: View {
                 Button(p.name) { library.addToPlaylist(p.id, [t.id]); Services.shared.app.showToast("Добавлено в «\(p.name)»") }
             }
         }
+        Button("В начало списка", systemImage: "arrow.up.to.line") { library.moveTrackToEdge(t.id, top: true) }
+        Button("В конец списка", systemImage: "arrow.down.to.line") { library.moveTrackToEdge(t.id, top: false) }
         Button("Удалить", systemImage: "trash", role: .destructive) { library.removeTracks([t.id]) }
     }
 
@@ -275,15 +281,17 @@ struct LightOptionsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SectionTitle("Как светиться")
-            Picker("Режим подсветки", selection: $light.mode) {
-                ForEach(LightEngine.Mode.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
+            SegPicker(selection: $light.mode, items: LightEngine.Mode.allCases.map { ($0, $0.title) }, label: "Режим подсветки")
 
             SliderRow(label: "Чувствительность к биту", value: "\(Int(sensHz(light.sensValue))) Гц",
                       v: $light.sens, range: 1...10)
             SliderRow(label: "Плавность", value: "\(Int(light.smooth.rounded()))",
                       v: $light.smooth, range: 1...10)
+            VStack(alignment: .leading, spacing: 4) {
+                SliderRow(label: "Свет раньше на", value: "\(Int(light.leadMs)) мс",
+                          v: $light.leadMs, range: 0...400, step: 10)
+                Hint("Вспышки отстают от бочки — двигай вправо, опережают — влево. Для своих треков и SoundCloud; микрофон слышит звук только когда он уже прозвучал.")
+            }
             LevelMeter()
             Toggle("Не гасить экран, пока работает светомузыка", isOn: $light.keepAwake)
                 .tint(.green)

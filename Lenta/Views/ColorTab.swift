@@ -14,10 +14,10 @@ struct ColorTab: View {
                             app.needConn()
                             app.pick(rgb: c)
                         } label: {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: Web.rSm, style: .continuous)
                                 .fill(c.color)
                                 .aspectRatio(1, contentMode: .fit)
-                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+                                .overlay(RoundedRectangle(cornerRadius: Web.rSm, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
                         }
                         .buttonStyle(SwatchStyle())
                         .accessibilityLabel("Цвет RGB \(c.r), \(c.g), \(c.b)")
@@ -113,14 +113,15 @@ struct ColorFixCard: View {
                     Spacer()
                     Image(systemName: "chevron.down").rotationEffect(.degrees(open ? 180 : 0))
                 }
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white)
+                .frame(minHeight: 52)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if open {
                 HStack(spacing: 10) {
-                    Text("Порядок цветов").foregroundStyle(.white.opacity(0.7))
+                    Text("Порядок цветов").foregroundStyle(Web.muted)
                     Spacer()
                     Picker("Порядок цветов", selection: $app.order) {
                         ForEach(colorOrders, id: \.self) { Text($0).tag($0) }
@@ -130,10 +131,13 @@ struct ColorFixCard: View {
                 }
                 Button("Проверка: красный") { app.testRed() }
                     .buttonStyle(GlassButtonStyle())
-                Toggle("Коррекция оттенков", isOn: $app.gamma).tint(.green)
+                Toggle("Коррекция оттенков", isOn: $app.gamma).tint(Web.accent)
                 Hint("У этой ленты порядок GRB. Если «Проверка: красный» горит не красным, меняй порядок, пока не загорится красный.")
             }
         }
-        .card(padding: 18)
+        .padding(.horizontal, 20)
+        .padding(.bottom, open ? 16 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glass(in: RoundedRectangle(cornerRadius: Web.rLg, style: .continuous))
     }
 }

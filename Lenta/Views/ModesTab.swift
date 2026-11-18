@@ -7,20 +7,23 @@ struct ModesTab: View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 12) {
-                    Button { app.runFx(app.fx - 1) } label: { Image(systemName: "minus") }
-                        .buttonStyle(RoundIconButtonStyle(size: 58))
+                    Button { app.runFx(app.fx - 1) } label: { Image(systemName: "minus").font(.system(size: 22, weight: .regular)) }
+                        .buttonStyle(GlassButtonStyle(height: 56))
+                        .frame(width: 56)
                         .accessibilityLabel("Предыдущий режим")
                     VStack(spacing: 2) {
                         Text("\(app.fx)")
-                            .font(.system(size: 56, weight: .bold, design: .rounded))
+                            .font(.system(size: 52, weight: .semibold))
+                            .tracking(-1.5)
                             .monospacedDigit()
                             .contentTransition(.numericText(value: Double(app.fx)))
                             .animation(.snappy, value: app.fx)
-                        Text("режим из 210").font(.footnote).foregroundStyle(.white.opacity(0.6))
+                        Text("режим из 210").font(.footnote).foregroundStyle(Web.muted)
                     }
                     .frame(maxWidth: .infinity)
-                    Button { app.runFx(app.fx + 1) } label: { Image(systemName: "plus") }
-                        .buttonStyle(RoundIconButtonStyle(size: 58))
+                    Button { app.runFx(app.fx + 1) } label: { Image(systemName: "plus").font(.system(size: 22, weight: .regular)) }
+                        .buttonStyle(GlassButtonStyle(height: 56))
+                        .frame(width: 56)
                         .accessibilityLabel("Следующий режим")
                 }
 
@@ -37,12 +40,13 @@ struct ModesTab: View {
                             .lineLimit(1)
                     }
                     .buttonStyle(GlassButtonStyle(on: app.isFav, accent: Color(red: 1, green: 0.8, blue: 0.3)))
+                    .frame(maxWidth: .infinity)
                     .sensoryFeedback(.success, trigger: app.isFav)
 
                     Button { app.toggleAutoFx() } label: {
                         Label("Автосмена", systemImage: "arrow.clockwise").lineLimit(1)
                     }
-                    .buttonStyle(GlassButtonStyle(on: app.autoFx, accent: Color(red: 0.45, green: 0.65, blue: 1)))
+                    .buttonStyle(GlassButtonStyle(on: app.autoFx, accent: Web.accent))
                 }
             }
             .card()
@@ -61,8 +65,8 @@ struct ModesTab: View {
                                     .monospacedDigit()
                                     .foregroundStyle(cur ? Color.black : Color.white)
                                     .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(cur ? Color.white : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .glass(in: RoundedRectangle(cornerRadius: 12, style: .continuous), interactive: true)
+                                    .background(cur ? Color.white : Web.fill, in: RoundedRectangle(cornerRadius: Web.rSm, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: Web.rSm, style: .continuous).strokeBorder(cur ? Color.white : Web.line, lineWidth: 1))
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Режим \(n)")

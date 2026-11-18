@@ -256,6 +256,33 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    // MARK: - Порядок
+
+    /// Перетащили трек на место другого
+    func moveTrack(_ id: String, to target: String) {
+        guard id != target, let from = tracks.firstIndex(where: { $0.id == id }),
+              let to = tracks.firstIndex(where: { $0.id == target }) else { return }
+        let t = tracks.remove(at: from)
+        tracks.insert(t, at: to)
+        save()
+    }
+
+    func moveTrackToEdge(_ id: String, top: Bool) {
+        guard let from = tracks.firstIndex(where: { $0.id == id }) else { return }
+        let t = tracks.remove(at: from)
+        if top { tracks.insert(t, at: 0) } else { tracks.append(t) }
+        save()
+    }
+
+    func moveInPlaylist(_ pid: String, _ id: String, to target: String) {
+        guard id != target, let k = playlists.firstIndex(where: { $0.id == pid }),
+              let from = playlists[k].trackIDs.firstIndex(of: id),
+              let to = playlists[k].trackIDs.firstIndex(of: target) else { return }
+        let x = playlists[k].trackIDs.remove(at: from)
+        playlists[k].trackIDs.insert(x, at: to)
+        save()
+    }
+
     // MARK: - Удаление
 
     func removeTracks(_ ids: Set<String>) {

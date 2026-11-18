@@ -37,9 +37,9 @@ struct TrackRow: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
                 ZStack {
-                    ArtThumb(source: library.artSource(track), size: 44, radius: 9)
+                    ArtThumb(source: library.artSource(track), size: 44, radius: 6)
                     if cur {
-                        Color.black.opacity(0.45).clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        Color.black.opacity(0.55).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         if player.playing {
                             Image(systemName: "waveform").symbolEffect(.variableColor.iterative)
                         } else {
@@ -49,21 +49,22 @@ struct TrackRow: View {
                 }
                 .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title).lineLimit(1).fontWeight(cur ? .semibold : .regular)
+                    Text(track.title).font(.system(size: 15, weight: .medium)).lineLimit(1)
                     HStack(spacing: 5) {
                         SourceBadge(source: track.source)
-                        Text(track.artist).font(.caption).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                        Text(track.artist).font(.footnote).foregroundStyle(Web.muted).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 8)
                 if track.duration > 0 {
-                    Text(fmtTime(track.duration)).font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.45))
+                    Text(fmtTime(track.duration)).font(.footnote.monospacedDigit()).foregroundStyle(Web.muted)
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(cur || selected ? Color.white.opacity(0.08) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(minHeight: 56)
+            .background(cur || selected ? Color.white.opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: Web.rSm, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -242,6 +243,7 @@ struct PlaylistDetail: View {
     @State private var newName = ""
     @State private var picking = false
     @State private var confirmDelete = false
+    @State private var dropTarget: String?
 
     var body: some View {
         NavigationStack {
@@ -316,6 +318,7 @@ struct PlaylistDetail: View {
             Section {
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { i, t in
                     TrackRow(track: t) { player.play(tracks.map(\.id), start: i, context: p.name) }
+                        .reorderable(id: t.id, target: $dropTarget) { library.moveInPlaylist(pid, $0, to: t.id) }
                         .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
                         .listRowBackground(Color.clear)
                 }
@@ -378,5 +381,32 @@ struct TrackPicker: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+// MARK: - Перестановка перетаскиванием
+
+extension View {
+    /// Строку можно взять долгим нажатием и бросить на место другой
+    func reorderable(id: String, target: Binding<String?>, move: @escaping (String) -> Void) -> some View {
+        self
+            .draggable(id) {
+                Text("Переставить").font(.footnote.weight(.semibold)).padding(8)
+                    .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(.black)
+            }
+            .dropDestination(for: String.self) { items, _ in
+                guard let from = items.first else { return false }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { move(from) }
+                target.wrappedValue = nil
+                return true
+            } isTargeted: { on in
+                if on { target.wrappedValue = id } else if target.wrappedValue == id { target.wrappedValue = nil }
+            }
+            .overlay(alignment: .top) {
+                if target.wrappedValue == id {
+                    Capsule().fill(Color.white).frame(height: 3).padding(.horizontal, 8).offset(y: -2)
+                        .transition(.opacity)
+                }
+            }
     }
 }

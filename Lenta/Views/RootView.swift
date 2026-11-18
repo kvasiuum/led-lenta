@@ -27,6 +27,7 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab: AppTab = .color
     @State private var dir: CGFloat = 1
+    @State private var lastOffset: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -55,11 +56,31 @@ struct RootView: View {
                 .padding(.bottom, 24)
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { player.collapseFromPage() })
+                .background {
+                    GeometryReader { g in
+                        Color.clear.preference(key: ScrollOffsetKey.self, value: g.frame(in: .named("page")).minY)
+                    }
+                }
             }
+            .coordinateSpace(name: "page")
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
+            .onPreferenceChange(ScrollOffsetKey.self) { y in
+                // прокрутили страницу — плеер сворачивается в полоску
+                if abs(y - lastOffset) > 14 { player.collapseFromPage() }
+                lastOffset = y
+            }
+            // место под свёрнутый плеер; сама карточка лежит поверх и не сдвигает страницу —
+            // иначе ползунок под пальцем «уезжал» и переставал работать
             .safeAreaInset(edge: .bottom) {
-                MiniPlayer().animation(.spring(response: 0.45, dampingFraction: 0.85), value: player.has)
+                Color.clear.frame(height: player.has ? 72 : 0)
+            }
+
+            VStack {
+                Spacer()
+                PlayerDock().animation(.spring(response: 0.45, dampingFraction: 0.85), value: player.has)
             }
 
             WebHost()
@@ -86,28 +107,35 @@ struct TabSwitcher: View {
             ForEach(AppTab.allCases) { t in
                 let on = t == tab
                 Button { tab = t } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: t.icon).font(.system(size: 15, weight: .semibold))
-                        Text(t.title).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                    // иконка над подписью — на узком экране подписи не наезжают друг на друга
+                    VStack(spacing: 3) {
+                        Image(systemName: t.icon).font(.system(size: 17, weight: .semibold))
+                        Text(t.title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
                     }
-                    .foregroundStyle(on ? Color.white : Color.white.opacity(0.55))
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(on ? Color.white : Web.muted)
+                    .frame(maxWidth: .infinity, minHeight: 52)
                     .background {
                         if on {
-                            Capsule()
-                                .fill(Color.white.opacity(0.16))
-                                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+                            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                                .fill(Web.fillOn)
+                                .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous)
+                                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.2), .clear], startPoint: .top, endPoint: .center), lineWidth: 1))
                                 .matchedGeometryEffect(id: "pill", in: ns)
                         }
                     }
-                    .contentShape(Capsule())
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
             }
         }
-        .padding(4)
-        .glass(in: Capsule())
+        .padding(5)
+        .glass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .sensoryFeedback(.selection, trigger: tab)
     }
+}
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

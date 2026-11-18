@@ -1,78 +1,110 @@
 import SwiftUI
 
-// Liquid Glass на iOS 26 (Xcode 26), матовое стекло на iOS 17–18 и в старом Xcode.
+// Стиль сайта (слой Liquid Glass из index.html): стекло = размытие + градиент белого 11%→4%,
+// граница 10% и «блик» по краю, ярче сверху-слева и снизу-справа. Радиусы: панели 26, кнопки 14,
+// мелкие элементы 11. Основная кнопка — белая с чёрным текстом.
 
-#if compiler(>=6.2)
-extension View {
-    @ViewBuilder
-    func glass<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
-        } else {
-            self.legacyGlass(in: shape, tint: tint)
-        }
-    }
+enum Web {
+    static let muted = Color(red: 235 / 255, green: 235 / 255, blue: 245 / 255).opacity(0.62)
+    static let faint = Color(red: 235 / 255, green: 235 / 255, blue: 245 / 255).opacity(0.38)
+    static let fill = Color.white.opacity(0.08)       // --surface-2
+    static let fillOn = Color.white.opacity(0.16)     // --surface-3, выбранная плашка
+    static let line = Color.white.opacity(0.10)
+    static let well = Color.black.opacity(0.28)       // «лунка» под переключателями и полями
+    static let accent = Color(red: 0x5b / 255, green: 0x93 / 255, blue: 1)
+    static let ok = Color(red: 0x3f / 255, green: 0xb9 / 255, blue: 0x50 / 255)
+    static let bad = Color(red: 0xef / 255, green: 0x6b / 255, blue: 0x63 / 255)
+    static let rLg: CGFloat = 26, rMd: CGFloat = 16, rSm: CGFloat = 11, rBtn: CGFloat = 14
 }
-#else
-extension View {
-    func glass<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        self.legacyGlass(in: shape, tint: tint)
-    }
-}
-#endif
+
+/// Блик по краю стекла
+private let rim = LinearGradient(
+    gradient: Gradient(stops: [
+        .init(color: .white.opacity(0.5), location: 0),
+        .init(color: .white.opacity(0.08), location: 0.3),
+        .init(color: .white.opacity(0), location: 0.5),
+        .init(color: .white.opacity(0.08), location: 0.7),
+        .init(color: .white.opacity(0.32), location: 1)
+    ]),
+    startPoint: .topLeading, endPoint: .bottomTrailing)
 
 extension View {
-    func legacyGlass<S: Shape>(in shape: S, tint: Color?) -> some View {
+    /// Стеклянная поверхность как на сайте
+    func glass<S: InsettableShape>(in shape: S, tint: Color? = nil, interactive: Bool = false, shadow: Bool = true) -> some View {
         self
-            .background((tint ?? .clear).opacity(0.35), in: shape)
-            .background(.ultraThinMaterial, in: shape)
-            .overlay(shape.stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+            .background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(LinearGradient(colors: [.white.opacity(0.11), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom))
+                    if let tint { shape.fill(tint) }
+                }
+                .shadow(color: .black.opacity(shadow ? 0.28 : 0), radius: 16, y: 12)
+            }
+            .overlay {
+                shape.strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                    .overlay(shape.strokeBorder(rim, lineWidth: 1))
+                    .allowsHitTesting(false)
+            }
     }
 
-    /// Карточка-панель
+    /// Панель
     func card(padding: CGFloat = 20) -> some View {
         self
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .glass(in: RoundedRectangle(cornerRadius: Web.rLg, style: .continuous))
+    }
+
+    /// Простая заливка как у .btn / .chips / строк расписания
+    func webFill(_ radius: CGFloat = Web.rBtn, on: Bool = false, border: Color = Web.line) -> some View {
+        self
+            .background(on ? Web.fillOn : Web.fill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(border, lineWidth: 1))
     }
 }
 
-/// Белая основная кнопка
+/// .btn.primary — белая, текст чёрный
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .foregroundStyle(.black)
             .padding(.horizontal, 18)
-            .frame(minHeight: 46)
-            .background(Color.white, in: Capsule())
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .frame(minHeight: 44)
+            .background(Color.white.opacity(configuration.isPressed ? 0.86 : 1),
+                        in: RoundedRectangle(cornerRadius: Web.rBtn, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
     }
 }
 
-/// Стеклянная кнопка; on — подсвеченное состояние
+/// .btn — полупрозрачная; on — цвет акцента и рамка (как «В избранном» / «Автосмена»)
 struct GlassButtonStyle: ButtonStyle {
     var on = false
     var accent: Color = .white
-    var height: CGFloat = 46
+    var height: CGFloat = 44
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .foregroundStyle(on ? accent : Color.white)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .frame(minHeight: height)
             .frame(maxWidth: .infinity)
-            .glass(in: Capsule(), tint: on ? accent.opacity(0.25) : nil, interactive: true)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .background((on ? accent.opacity(0.08) : (configuration.isPressed ? Color.white.opacity(0.14) : Web.fill)),
+                        in: RoundedRectangle(cornerRadius: Web.rBtn, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Web.rBtn, style: .continuous)
+                .strokeBorder(on ? accent.opacity(0.4) : Web.line, lineWidth: 1))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
     }
 }
 
-/// Круглая иконка-кнопка
+/// .power / .icon-round — круг; filled — белый (включено)
 struct RoundIconButtonStyle: ButtonStyle {
     var size: CGFloat = 44
     var filled = false
@@ -80,12 +112,59 @@ struct RoundIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: size * 0.4, weight: .semibold))
-            .foregroundStyle(filled ? Color.black : Color.white)
+            .foregroundStyle(filled ? Color.black : Web.muted)
             .frame(width: size, height: size)
-            .background(filled ? Color.white : Color.clear, in: Circle())
-            .glass(in: Circle(), interactive: true)
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .background(filled ? Color.white : Web.fill, in: Circle())
+            .overlay(Circle().strokeBorder(filled ? Color.white : Web.line, lineWidth: 1))
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
+
+/// .seg — тёмная лунка, выбранный вариант подсвечен скользящей плашкой
+struct SegPicker<T: Hashable>: View {
+    @Binding var selection: T
+    let items: [(T, String)]
+    var label: String = ""
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(items.indices, id: \.self) { i in
+                let (value, title) = items[i]
+                let on = value == selection
+                Button {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { selection = value }
+                } label: {
+                    Text(title)
+                        .font(.system(size: 15, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .foregroundStyle(on ? Color.white : Web.muted)
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background {
+                            if on {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Web.fillOn)
+                                    .overlay(alignment: .top) {
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.2), .clear], startPoint: .top, endPoint: .center), lineWidth: 1)
+                                    }
+                                    .matchedGeometryEffect(id: "seg", in: ns)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .padding(4)
+        .background(Web.well, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .sensoryFeedback(.selection, trigger: selection)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
     }
 }
 
@@ -177,7 +256,7 @@ struct SectionTitle: View {
     let text: String
     init(_ t: String) { text = t }
     var body: some View {
-        Text(text).font(.headline).foregroundStyle(.white)
+        Text(text).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
     }
 }
 
@@ -186,7 +265,7 @@ struct Hint: View {
     let text: String
     init(_ t: String) { text = t }
     var body: some View {
-        Text(text).font(.footnote).foregroundStyle(.white.opacity(0.6)).fixedSize(horizontal: false, vertical: true)
+        Text(text).font(.footnote).foregroundStyle(Web.muted).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -201,10 +280,10 @@ struct SliderRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(label).foregroundStyle(.white.opacity(0.7))
-                Spacer()
-                Text(value).monospacedDigit().fontWeight(.medium)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(label).foregroundStyle(Web.muted).lineLimit(2)
+                Spacer(minLength: 8)
+                Text(value).monospacedDigit().fontWeight(.medium).fixedSize()
             }
             .font(.subheadline)
             Slider(value: $v, in: range, step: step).tint(tint)
@@ -220,9 +299,9 @@ struct LevelMeter: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.1))
+                Capsule().fill(Web.fillOn)
                 Capsule()
-                    .fill(LinearGradient(colors: [live.rgb.color.opacity(0.7), live.rgb.color], startPoint: .leading, endPoint: .trailing))
+                    .fill(Color.white)
                     .frame(width: geo.size.width * CGFloat(clamp(live.level, 0, 1)))
             }
         }
@@ -231,27 +310,30 @@ struct LevelMeter: View {
     }
 }
 
-/// Всплывающая подсказка сверху
+/// Подсказка как на сайте: белая плашка снизу, над плеером
 struct ToastView: View {
     @EnvironmentObject var app: AppModel
+    @EnvironmentObject var player: PlayerController
 
     var body: some View {
         VStack {
+            Spacer()
             if let t = app.toast {
                 Text(t)
                     .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.black)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .glass(in: Capsule())
-                    .padding(.horizontal, 24)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.93, green: 0.93, blue: 0.94), in: RoundedRectangle(cornerRadius: Web.rMd, style: .continuous))
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, player.has ? (player.expanded ? 220 : 80) : 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                     .id(t)
-                    .accessibilityAddTraits(.isStaticText)
             }
-            Spacer()
         }
-        .padding(.top, 8)
         .allowsHitTesting(false)
+        .accessibilityElement(children: .contain)
     }
 }

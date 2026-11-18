@@ -225,7 +225,7 @@ final class LEDController: NSObject, ObservableObject {
         busy = true
         let (_, data) = pending.removeFirst()
         p.writeValue(data, for: c, type: noResponse ? .withoutResponse : .withResponse)
-        q.asyncAfter(deadline: .now() + .milliseconds(20)) {
+        q.asyncAfter(deadline: .now() + .milliseconds(noResponse ? 12 : 20)) {
             self.busy = false
             self.pump()
         }

@@ -9,7 +9,7 @@ struct DeviceCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Лента").font(.system(size: 30, weight: .bold)).tracking(-0.5)
+                    Text("Лента").font(.system(size: 28, weight: .semibold)).tracking(-0.56)
                     StatusLine()
                 }
                 Spacer()
@@ -33,11 +33,12 @@ struct DeviceCard: View {
             StripPreview().padding(.top, 20)
 
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(app.nowTitle).font(.subheadline.weight(.semibold))
-                    Text(app.nowSubtitle).font(.subheadline).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(app.nowTitle).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                    Text(app.nowSubtitle).font(.subheadline).foregroundStyle(Web.muted)
+                        .lineLimit(1).truncationMode(.tail)
                 }
-                Divider().overlay(Color.white.opacity(0.08)).padding(.vertical, 6)
+                Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1).padding(.vertical, 8)
                 SliderRow(label: "Яркость", value: "\(Int(app.brightness.rounded()))%",
                           v: Binding(get: { app.brightness }, set: { app.setBrightness($0) }),
                           range: 1...100, tint: app.currentRGB.color)
@@ -60,8 +61,8 @@ struct StatusLine: View {
     var body: some View {
         let (text, color) = info
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.footnote).foregroundStyle(color == .red ? Color.red : Color.white.opacity(color == .green ? 1 : 0.6))
+            Circle().fill(color == .green ? Web.ok : (color == .red ? Web.bad : Web.faint)).frame(width: 7, height: 7)
+            Text(text).font(.footnote).foregroundStyle(color == .red ? Web.bad : (color == .green ? Color.white : Web.muted))
         }
         .animation(.easeOut(duration: 0.2), value: text)
     }

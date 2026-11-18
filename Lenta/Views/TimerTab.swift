@@ -14,7 +14,7 @@ struct TimerTab: View {
             // ---- таймер сна
             VStack(alignment: .leading, spacing: 14) {
                 SectionTitle("Выключить через")
-                HStack(spacing: 8) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                     ForEach([15, 30, 60, 120], id: \.self) { m in
                         Button(m < 60 ? "\(m) мин" : (m == 60 ? "1 час" : "\(m / 60) часа")) { timers.setSleep(minutes: m) }
                             .buttonStyle(GlassButtonStyle(height: 44))
@@ -24,7 +24,8 @@ struct TimerTab: View {
                 if let at = timers.sleepAt {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Лента выключится в ") + Text(at, format: .dateTime.hour().minute()).bold()
+                            (Text("Выключится в ") + Text(at, format: .dateTime.hour().minute()).bold())
+                                .lineLimit(1).minimumScaleFactor(0.8)
                             Text(left(at)).font(.footnote).foregroundStyle(.white.opacity(0.6))
                         }
                         Spacer()
@@ -33,7 +34,7 @@ struct TimerTab: View {
                             .fixedSize()
                     }
                     .padding(14)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(Web.fill, in: RoundedRectangle(cornerRadius: Web.rMd, style: .continuous))
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -47,35 +48,36 @@ struct TimerTab: View {
                     Hint("Пока пусто. Например: включать в 7:30 по будням, выключать в 0:30 каждый день.")
                 }
                 ForEach(timers.sorted) { item in
-                    HStack(spacing: 12) {
-                        Text(item.time).font(.system(size: 26, weight: .semibold, design: .rounded)).monospacedDigit()
+                    HStack(spacing: 14) {
+                        Text(item.time).font(.system(size: 26, weight: .semibold)).tracking(-0.5).monospacedDigit().fixedSize()
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.act == "on" ? "Включить" : "Выключить").font(.subheadline.weight(.semibold))
-                            Text(daysText(item.days)).font(.footnote).foregroundStyle(.white.opacity(0.6))
+                            Text(daysText(item.days)).font(.subheadline).foregroundStyle(Web.muted).lineLimit(2)
                         }
-                        Spacer()
+                        Spacer(minLength: 4)
                         Toggle("", isOn: Binding(get: { item.on }, set: { _ in timers.toggle(item.id) }))
                             .labelsHidden()
                             .tint(.green)
                             .accessibilityLabel("\(item.act == "on" ? "Включить" : "Выключить") в \(item.time)")
-                        Button { timers.remove(item.id) } label: { Image(systemName: "trash") }
-                            .buttonStyle(RoundIconButtonStyle(size: 36))
-                            .accessibilityLabel("Удалить")
+                        Button { timers.remove(item.id) } label: {
+                            Image(systemName: "trash").font(.system(size: 16)).foregroundStyle(Web.muted)
+                                .frame(width: 36, height: 36).contentShape(Circle())
+                        }
+                        .buttonStyle(PressScale())
+                        .accessibilityLabel("Удалить")
                     }
-                    .opacity(item.on ? 1 : 0.5)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .background(Web.fill, in: RoundedRectangle(cornerRadius: Web.rMd, style: .continuous))
+                    .opacity(item.on ? 1 : 0.55)
                 }
 
-                Divider().overlay(Color.white.opacity(0.08))
-
+                // форма — пунктирная рамка, как на сайте
+                VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     DatePicker("Время", selection: $time, displayedComponents: .hourAndMinute)
                         .labelsHidden()
-                    Picker("Действие", selection: $act) {
-                        Text("Включить").tag("on")
-                        Text("Выключить").tag("off")
-                    }
-                    .pickerStyle(.segmented)
+                    SegPicker(selection: $act, items: [("on", "Включить"), ("off", "Выключить")], label: "Действие")
                 }
 
                 HStack(spacing: 6) {
@@ -84,20 +86,19 @@ struct TimerTab: View {
                         Button(dayShort[d]) {
                             if on { days.remove(d) } else { days.insert(d) }
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(on ? Color.black : Color.white)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(on ? Color.white : Web.muted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, minHeight: 40)
-                        .background(on ? Color.white : Color.white.opacity(0.08), in: Circle())
+                        .background(on ? Web.fillOn : Color.clear, in: RoundedRectangle(cornerRadius: Web.rSm, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Web.rSm, style: .continuous).strokeBorder(on ? Color.clear : Web.line, lineWidth: 1))
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
 
-                HStack(spacing: 8) {
-                    preset("Каждый день", [0, 1, 2, 3, 4, 5, 6])
-                    preset("Будни", [1, 2, 3, 4, 5])
-                    preset("Выходные", [0, 6])
-                }
+                HStack(spacing: 10) { presets }
 
                 Button("Добавить в расписание") {
                     guard !days.isEmpty else { Services.shared.app.showToast("Выбери хотя бы один день"); return }
@@ -105,6 +106,10 @@ struct TimerTab: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .frame(maxWidth: .infinity)
+                }
+                .padding(16)
+                .overlay(RoundedRectangle(cornerRadius: Web.rMd, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.16), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
             }
             .card()
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: timers.sched)
@@ -118,14 +123,21 @@ struct TimerTab: View {
         }
     }
 
+    @ViewBuilder
+    private var presets: some View {
+        preset("Каждый день", [0, 1, 2, 3, 4, 5, 6])
+        preset("Будни", [1, 2, 3, 4, 5])
+        preset("Выходные", [0, 6])
+    }
+
     private func preset(_ title: String, _ set: [Int]) -> some View {
-        Button(title) { days = Set(set) }
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(.white.opacity(0.8))
-            .padding(.horizontal, 12)
-            .frame(minHeight: 32)
-            .background(Color.white.opacity(0.08), in: Capsule())
-            .buttonStyle(.plain)
+        // как на сайте: подчёркнутые серые ссылки
+        Button { days = Set(set) } label: {
+            Text(title).underline().font(.footnote).foregroundStyle(Web.muted)
+                .lineLimit(1).minimumScaleFactor(0.8)
+                .frame(minHeight: 32)
+        }
+        .buttonStyle(.plain)
     }
 
     private func left(_ at: Date) -> String {

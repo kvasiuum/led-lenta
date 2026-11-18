@@ -29,6 +29,9 @@ final class LightEngine: ObservableObject {
         didSet { Prefs.set("keepAwake", keepAwake); applyIdle() }
     }
 
+    /// Насколько раньше показывать свет (мс): компенсирует задержку Bluetooth ленты
+    @Published var leadMs: Double = Prefs.get("leadMs", 160.0) { didSet { Prefs.set("leadMs", leadMs) } }
+
     var sensValue: Int { clamp(Int(sens.rounded()), 1, 10) }
 
     // MARK: состояние цикла (всё на main)
@@ -43,6 +46,8 @@ final class LightEngine: ObservableObject {
     private var waveIdx = -1, lastBeatNo = -1
     private var lastHop = -1
     private var lastUI = 0.0
+    /// Был удар в этом такте — отправляем сразу, без ожидания окна в 40 мс
+    private var beatPending = false
 
     // микрофон
     private var micAnalyzer: StreamAnalyzer?
@@ -143,7 +148,7 @@ final class LightEngine: ObservableObject {
         let sr = an.sampleRate
         // что слышно сейчас: позиция минус задержка вывода, плюс запас на Bluetooth ленты
         let latency = AVAudioSession.sharedInstance().outputLatency
-        let pos = player.currentTime - latency + 0.09
+        let pos = player.currentTime - latency + leadMs / 1000
         let hop = Int(max(0, pos) * sr / Double(StreamAnalyzer.hop))
         if hop < lastHop || hop - lastHop > 60 {           // перемотка — начинаем заново
             resetState()
@@ -196,7 +201,8 @@ final class LightEngine: ObservableObject {
     private func tickSC(_ t: Double) {
         let sc = s.web, wave = sc.wave
         let sensV = sensValue
-        let pos = sc.nowPos() + 90                        // небольшой запас на задержку Bluetooth
+        // что слышно сейчас (минус задержка наушников) + запас на задержку ленты
+        let pos = sc.nowPos() - AVAudioSession.sharedInstance().outputLatency * 1000 + leadMs
         var beat = false, body = 0.0
         beatPeak = 1
         if wave.ready, let n = wave.n, let onset = wave.onset, sc.dur > 0, !n.isEmpty {
@@ -229,6 +235,7 @@ final class LightEngine: ObservableObject {
         let sm = smooth                                         // 1 = резко … 10 = плавно
         let dk = clamp(lastTick.map { (t - $0) / 21.3 } ?? 1, 0.2, 4)
         lastTick = t
+        if beat { beatPending = true }
         if mode == .strobe {
             level = beat ? 1 : level * pow(0.72, dk)
         } else {
@@ -255,8 +262,11 @@ final class LightEngine: ObservableObject {
             s.live.level = level
             s.live.rgb = full
         }
-        guard wall - lastSend >= 40, s.ble.isConnected else { return }   // ≈ 25 команд в секунду
+        // ≈ 25 команд в секунду, но удар уходит сразу
+        let due = wall - lastSend >= 40 || (beatPending && wall - lastSend >= 12)
+        guard due, s.ble.isConnected else { return }
         lastSend = wall
+        beatPending = false
         let rgb = mode == .rainbow ? hsv2rgb(hue, 1, level) : full.scaled(level)
         s.app.sendColor(rgb)
     }
