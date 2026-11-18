@@ -1,0 +1,62 @@
+# Собирает «Ленту» для Android (APK) и выпускает в GitHub Releases.
+name: Build APK
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Ключ подписи
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/lenta.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/lenta.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Нет секрета ANDROID_KEYSTORE_B64 — APK подписан отладочным ключом"
+          fi
+
+      - name: Собрать
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.0.${{ github.run_number }}
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: Переименовать
+        run: cp android/app/build/outputs/apk/release/app-release.apk Lenta.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lenta-apk
+          path: Lenta.apk
+
+      - name: Выпуск
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v1.0.${{ github.run_number }}" Lenta.apk \
+            --title "Лента для Android 1.0.${{ github.run_number }}" \
+            --notes "Скачай Lenta.apk и открой на телефоне. Нужен Chrome." \
+            --target "$GITHUB_SHA"
