@@ -1,0 +1,43 @@
+name: Build IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Выбрать самый новый Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Xcode: $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Собрать
+        run: |
+          xcodebuild -project Lenta.xcodeproj -scheme Lenta -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee build.log | grep -E "error:|warning: .*Lenta/|BUILD" || true
+          test -d build/Build/Products/Release-iphoneos/Lenta.app
+
+      - name: Упаковать IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Lenta.app Payload/
+          zip -qry Lenta.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lenta-ipa
+          path: Lenta.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
