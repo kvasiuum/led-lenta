@@ -1,14 +1,31 @@
+# Собирает Lenta.ipa на облачном Mac, выпускает его в GitHub Releases
+# и обновляет apps.json — источник для SideStore. SideStore подписывает IPA твоим Apple ID.
 name: Build IPA
 
 on:
   push:
+    paths-ignore:
+      - "apps.json"
+      - "**.md"
+      - "android/**"
+      - ".well-known/**"
+      - ".github/workflows/build-apk.yml"
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Выбрать самый новый Xcode
         run: |
@@ -17,12 +34,18 @@ jobs:
           sudo xcode-select -s "$XC"
           xcodebuild -version
 
+      - name: Номер версии
+        run: |
+          echo "BUILD=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "VERSION=1.0.${{ github.run_number }}" >> "$GITHUB_ENV"
+
       - name: Собрать
         run: |
           xcodebuild -project Lenta.xcodeproj -scheme Lenta -configuration Release \
             -destination 'generic/platform=iOS' -derivedDataPath build \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tee build.log | grep -E "error:|warning: .*Lenta/|BUILD" || true
+            build 2>&1 | tee build.log | grep -E "error:|BUILD" || true
           test -d build/Build/Products/Release-iphoneos/Lenta.app
 
       - name: Упаковать IPA
@@ -41,3 +64,20 @@ jobs:
         with:
           name: build-log
           path: build.log
+
+      - name: Выпуск для SideStore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          gh release create "v$VERSION" Lenta.ipa --title "Лента $VERSION" --notes "$MSG" --target "$GITHUB_SHA"
+          SIZE=$(stat -f%z Lenta.ipa)
+          python3 scripts/make_source.py --version "$VERSION" --build "$BUILD" --size "$SIZE" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/Lenta.ipa" \
+            --notes "$MSG" --repo "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898237+github-actions[bot]@users.noreply.github.com"
+          git add apps.json
+          git commit -m "SideStore: Лента $VERSION [skip ci]" || exit 0
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
