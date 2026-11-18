@@ -35,6 +35,7 @@ struct RootView: View {
 
             ScrollView {
                 VStack(spacing: 14) {
+                    UpdateBanner()
                     DeviceCard()
                     TabSwitcher(tab: Binding(get: { tab }, set: { select($0) }))
                     Group {
@@ -50,6 +51,7 @@ struct RootView: View {
                         insertion: AnyTransition.opacity.combined(with: AnyTransition.offset(x: 26 * dir)),
                         removal: AnyTransition.opacity))
                     ColorFixCard()
+                    VersionFooter()
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -75,7 +77,8 @@ struct RootView: View {
             // место под свёрнутый плеер; сама карточка лежит поверх и не сдвигает страницу —
             // иначе ползунок под пальцем «уезжал» и переставал работать
             .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: player.has ? 72 : 0)
+                // отступ ровно под плеер: ничего на странице не прячется под карточкой
+                Color.clear.frame(height: player.has ? max(player.dockHeight, 64) : 0)
             }
 
             VStack {
@@ -138,4 +141,55 @@ struct TabSwitcher: View {
 private struct ScrollOffsetKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// «Доступна версия 1.0.N» — сверху, пока не обновишься или не закроешь
+struct UpdateBanner: View {
+    @EnvironmentObject var updates: UpdateChecker
+
+    var body: some View {
+        if let v = updates.available, !updates.dismissed {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Доступна версия \(v)").font(.system(size: 15, weight: .semibold))
+                        if !updates.notes.isEmpty {
+                            Text(updates.notes).font(.footnote).foregroundStyle(Web.muted).lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Button { withAnimation { updates.dismissed = true } } label: {
+                        Image(systemName: "xmark").font(.system(size: 13, weight: .bold)).foregroundStyle(Web.muted)
+                            .frame(width: 32, height: 32).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Скрыть")
+                }
+                Button { updates.openSideStore() } label: {
+                    Label("Обновить в SideStore", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+            .card(padding: 18)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
+/// Внизу страницы: версия и подключение источника SideStore
+struct VersionFooter: View {
+    @EnvironmentObject var updates: UpdateChecker
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text("Лента \(updates.currentVersion)").font(.footnote).foregroundStyle(Web.faint)
+            Button { updates.addSource() } label: {
+                Text("Обновления через SideStore").underline().font(.footnote).foregroundStyle(Web.muted)
+                    .frame(minHeight: 32)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
 }

@@ -15,6 +15,7 @@ final class Services {
     let web = WebPlayer()
     let player = PlayerController()
     let timers = TimerModel()
+    let updates = UpdateChecker()
 
     private var started = false
 
@@ -27,5 +28,6 @@ final class Services {
         timers.start()
         app.applyColor(send: false)
         ble.autoConnect()
+        updates.check(force: true)
     }
 }

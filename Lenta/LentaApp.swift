@@ -18,10 +18,12 @@ struct LentaApp: App {
                 .environmentObject(s.web)
                 .environmentObject(s.player)
                 .environmentObject(s.timers)
+                .environmentObject(s.updates)
                 .onAppear { s.start() }
                 .onChange(of: phase) { _, p in
                     // вернулись в приложение — сразу ищем знакомую ленту
                     if p == .active && !s.ble.isConnected { s.ble.autoConnect() }
+                    if p == .active { s.updates.check() }
                 }
         }
     }

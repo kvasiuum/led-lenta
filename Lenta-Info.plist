@@ -8,6 +8,15 @@
 	<string>Bluetooth нужен, чтобы управлять LED-лентой.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Микрофон нужен для светомузыки: лента мигает в такт звуку в комнате. Ничего не записывается.</string>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>LentaSourceURL</key>
+	<string>https://raw.githubusercontent.com/kvasiuum/led-lenta/refs/heads/claude/loving-wright-wt954c/apps.json</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>sidestore</string>
+		<string>altstore</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

@@ -28,6 +28,13 @@ struct PlayerDock: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 6)
+            .background {
+                GeometryReader { g in
+                    Color.clear
+                        .onAppear { player.dockHeight = g.size.height }
+                        .onChange(of: g.size.height) { _, h in player.dockHeight = h }
+                }
+            }
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .gesture(
                 DragGesture(minimumDistance: 14).onEnded { v in
@@ -90,6 +97,9 @@ struct PlayerDock: View {
         }
         .padding(16)
         .glass(in: RoundedRectangle(cornerRadius: Web.rLg, style: .continuous))
+        // любое касание карточки откладывает автосворачивание
+        .simultaneousGesture(TapGesture().onEnded { player.touchDock() })
+        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in player.touchDock() })
         .sensoryFeedback(.selection, trigger: player.playing)
     }
 

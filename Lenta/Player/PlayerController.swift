@@ -29,7 +29,10 @@ final class PlayerController: ObservableObject {
     @Published var showFull = false
     /// Плеер внизу: большая карточка или компактная полоска
     @Published private(set) var expanded = true
+    /// Реальная высота плеера внизу — под неё страница делает отступ
+    @Published var dockHeight: CGFloat = 0
     private var expandedAt = Date.distantPast
+    private var idleWork: DispatchWorkItem?
 
     private var bag = Set<AnyCancellable>()
     private var artCache: (String, UIImage)?
@@ -75,9 +78,20 @@ final class PlayerController: ObservableObject {
     // MARK: - Карточка внизу
 
     func setExpanded(_ on: Bool) {
+        if on { expandedAt = Date(); touchDock() } else { idleWork?.cancel() }
         guard on != expanded else { return }
-        if on { expandedAt = Date() }
         withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { expanded = on }
+    }
+
+    /// Карточку трогали — отложить сворачивание. Без касаний она сворачивается сама через 5 с
+    func touchDock() {
+        idleWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self, self.expanded, !self.showFull else { return }
+            self.setExpanded(false)
+        }
+        idleWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: w)
     }
 
     /// Коснулись страницы или прокрутили — сворачиваем (но не сразу после раскрытия)

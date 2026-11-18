@@ -76,6 +76,12 @@ final class WebPlayer: NSObject, ObservableObject {
 
     func nowPos() -> Double { playing ? pos + (nowMs() - posAt) : pos }
 
+    /// Снимок для потока светомузыки
+    func lightSnap() -> LightEngine.WebSnap {
+        LightEngine.WebSnap(pos: pos, posAt: posAt, playing: playing, dur: dur,
+                            n: wave.n, onset: wave.onset, tempo: wave.tempo, ready: wave.ready)
+    }
+
     // MARK: - Загрузка трека
 
     func load(_ t: LTrack) {
