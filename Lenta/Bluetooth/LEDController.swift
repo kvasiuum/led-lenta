@@ -30,6 +30,7 @@ final class LEDController: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "FFE0")
     static let charUUID = CBUUID(string: "FFE1")
     private static let lastDeviceKey = "lenta.lastDeviceID"
+    private static let lastNameKey = "lenta.lastDeviceName"
 
     // MARK: внутреннее (только очередь q)
     private let q = DispatchQueue(label: "lenta.ble")
@@ -45,13 +46,20 @@ final class LEDController: NSObject, ObservableObject {
     private var attempt = 0
     private var wantAuto = true
     private var showAllQ = false
+    /// Тихий поиск ленты, с которой уже работали (если iOS её «забыла»)
+    private var autoScan = false
+    private var autoScanBudget = 3
 
     /// Вызывается на main после подключения
     var onConnected: (() -> Void)?
 
     override init() {
         super.init()
-        central = CBCentralManager(delegate: self, queue: q, options: [CBCentralManagerOptionShowPowerAlertKey: true])
+        // восстановление: iOS сама поднимет приложение, когда лента снова появится рядом
+        central = CBCentralManager(delegate: self, queue: q, options: [
+            CBCentralManagerOptionShowPowerAlertKey: true,
+            CBCentralManagerOptionRestoreIdentifierKey: "lenta.central"
+        ])
     }
 
     // MARK: - Публичные действия (с main)
@@ -99,6 +107,7 @@ final class LEDController: NSObject, ObservableObject {
     func autoConnect() {
         q.async {
             self.wantAuto = true
+            self.autoScanBudget = 3
             if self.central.state == .poweredOn { self.autoConnectQ() }
         }
     }
@@ -133,8 +142,36 @@ final class LEDController: NSObject, ObservableObject {
             connect(p)
             return
         }
-        setStatus(.idle)
+        startAutoScan()
     }
+
+    /// Лента уже подключалась, но iOS не знает её по номеру — ищем по имени и подключаемся сами
+    private func startAutoScan() {
+        let pending = peripheral.map { $0.state != .disconnected } ?? false
+        guard let name = UserDefaults.standard.string(forKey: Self.lastNameKey), !name.isEmpty,
+              central.state == .poweredOn, ch == nil, autoScanBudget > 0 else {
+            if ch == nil && !pending { setStatus(.idle) }
+            return
+        }
+        autoScanBudget -= 1
+        autoScan = true
+        setStatus(.searching)
+        if !central.isScanning {
+            central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        }
+        q.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self, self.autoScan else { return }
+            self.autoScan = false
+            if self.central.isScanning && !self.scanningForPicker { self.central.stopScan() }
+            if self.ch == nil, let p = self.peripheral, p.state != .disconnected {
+                self.setStatus(.searching)     // ждём через отложенное подключение
+            } else if self.ch == nil {
+                self.setStatus(.idle)
+            }
+        }
+    }
+
+    private var scanningForPicker = false
 
     private static func nameMatches(_ name: String?) -> Bool {
         guard let n = name else { return false }
@@ -152,6 +189,7 @@ final class LEDController: NSObject, ObservableObject {
         q.asyncAfter(deadline: .now() + 10) {
             guard my == self.attempt, self.ch == nil else { return }
             self.setStatus(.searching)
+            if !self.autoScan { self.startAutoScan() }
         }
     }
 
@@ -160,12 +198,14 @@ final class LEDController: NSObject, ObservableObject {
         seenInfo = [:]
         refreshFoundListQ()
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        scanningForPicker = true
         ui { self.scanning = true }
         q.asyncAfter(deadline: .now() + 20) { [weak self] in self?.stopScanQ() }
     }
 
     private func stopScanQ() {
-        if central.isScanning { central.stopScan() }
+        scanningForPicker = false
+        if central.isScanning && !autoScan { central.stopScan() }
         ui { self.scanning = false }
     }
 
@@ -195,6 +235,8 @@ final class LEDController: NSObject, ObservableObject {
         ch = c
         dropTries = 0
         UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.lastDeviceKey)
+        if let n = p.name, !n.isEmpty { UserDefaults.standard.set(n, forKey: Self.lastNameKey) }
+        autoScan = false
         let name = p.name ?? "Лента"
         ui {
             self.isConnected = true
@@ -209,6 +251,13 @@ final class LEDController: NSObject, ObservableObject {
 // MARK: - CBCentralManagerDelegate
 
 extension LEDController: CBCentralManagerDelegate {
+
+    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        guard let list = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral], let p = list.first else { return }
+        peripheral = p
+        p.delegate = self
+        if p.state == .connected { p.discoverServices([Self.serviceUUID]) }
+    }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
@@ -235,6 +284,14 @@ extension LEDController: CBCentralManagerDelegate {
         seen[p.identifier] = p
         seenInfo[p.identifier] = Found(id: p.identifier, name: name, rssi: RSSI.intValue, matches: matches)
         refreshFoundListQ()
+        if autoScan, ch == nil, !name.isEmpty, name == UserDefaults.standard.string(forKey: Self.lastNameKey) {
+            autoScan = false
+            if !scanningForPicker { central.stopScan() }
+            if let old = peripheral, old.identifier != p.identifier, old.state != .disconnected {
+                central.cancelPeripheralConnection(old)
+            }
+            connect(p)
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect p: CBPeripheral) {
@@ -246,7 +303,11 @@ extension LEDController: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
         guard p.identifier == peripheral?.identifier else { return }
         setStatus(.failed("Не удалось подключиться"))
-        ui { self.showPicker = true }
+        // пробуем ещё раз сами: лента могла быть занята другим телефоном
+        q.asyncAfter(deadline: .now() + 2) {
+            guard self.ch == nil, self.peripheral?.identifier == p.identifier, self.wantAuto else { return }
+            self.connect(p)
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {

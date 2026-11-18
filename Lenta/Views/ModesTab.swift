@@ -4,7 +4,7 @@ struct ModesTab: View {
     @EnvironmentObject var app: AppModel
 
     var body: some View {
-        Page {
+        VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 12) {
                     Button { app.runFx(app.fx - 1) } label: { Image(systemName: "minus") }

@@ -5,267 +5,248 @@ struct MusicTab: View {
     @EnvironmentObject var music: MusicModel
 
     var body: some View {
-        Page {
+        VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("Источник звука", selection: $music.source) {
-                    ForEach(MusicModel.Source.allCases) { Text($0.title).tag($0) }
+                Picker("Раздел музыки", selection: $music.tab) {
+                    ForEach(MusicModel.Tab.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
 
                 Group {
-                    switch music.source {
-                    case .file: FileArea()
-                    case .sc: SoundCloudArea()
+                    switch music.tab {
+                    case .tracks: TracksPanel()
+                    case .playlists: PlaylistsPanel()
                     case .mic: MicArea()
                     }
                 }
+                .id(music.tab)
                 .transition(.opacity.combined(with: .offset(y: 8)))
-                .id(music.source)
             }
             .card()
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: music.source)
+            .animation(.spring(response: 0.4, dampingFraction: 0.86), value: music.tab)
 
             LightOptionsCard()
         }
     }
 }
 
-// MARK: - Свои треки
+// MARK: - Треки
 
-private struct FileArea: View {
-    @EnvironmentObject var library: LocalLibrary
-    @State private var importing = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button { importing = true } label: {
-                Label("Добавить музыку", systemImage: "plus")
-            }
-            .buttonStyle(GlassButtonStyle())
-
-            if !library.tracks.isEmpty {
-                VStack(spacing: 2) {
-                    ForEach(Array(library.tracks.enumerated()), id: \.element.id) { i, t in
-                        let cur = i == library.cur
-                        HStack(spacing: 12) {
-                            Button { library.play(i) } label: {
-                                HStack(spacing: 12) {
-                                    ZStack {
-                                        ArtThumb(source: .file(library.artURL(t)), size: 40, radius: 8)
-                                        if cur && library.isPlaying {
-                                            Color.black.opacity(0.45).clipShape(RoundedRectangle(cornerRadius: 8))
-                                            Image(systemName: "waveform").symbolEffect(.variableColor.iterative)
-                                                .foregroundStyle(.white)
-                                        }
-                                    }
-                                    .frame(width: 40, height: 40)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(t.displayTitle).lineLimit(1).fontWeight(cur ? .semibold : .regular)
-                                        if let a = t.artist {
-                                            Text(a).font(.caption).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-
-                            Button { withAnimation { library.remove(i) } } label: {
-                                Image(systemName: "xmark").font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.5))
-                                    .frame(width: 32, height: 32)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Удалить \(t.displayTitle)")
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(cur ? Color.white.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-                Hint("Треки хранятся в приложении и остаются после перезапуска. Файлы из «Файлов», AirDrop, iCloud Drive.")
-            }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.audio], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { library.add(urls: urls) }
-        }
-    }
-}
-
-// MARK: - SoundCloud
-
-private struct SoundCloudArea: View {
-    @EnvironmentObject var sc: SoundCloudController
+private struct TracksPanel: View {
+    @EnvironmentObject var library: LibraryStore
     @EnvironmentObject var player: PlayerController
-    @State private var link = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                TextField("Ссылка на альбом, плейлист или трек", text: $link)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.go)
-                    .focused($focused)
-                    .onSubmit(add)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 46)
-                    .glass(in: Capsule())
-                if link.isEmpty {
-                    Button {
-                        if let t = UIPasteboard.general.string { link = t; add() }
-                    } label: { Image(systemName: "doc.on.clipboard") }
-                    .buttonStyle(RoundIconButtonStyle(size: 46))
-                    .accessibilityLabel("Вставить ссылку")
-                } else {
-                    Button("Добавить", action: add).buttonStyle(PrimaryButtonStyle()).fixedSize()
-                }
-            }
-            Hint("В SoundCloud: «Поделиться» → «Копировать ссылку». Закрытый плейлист добавляется по секретной ссылке.")
-
-            if !sc.lib.isEmpty {
-                Text("Мои плейлисты").font(.subheadline.weight(.semibold)).padding(.top, 4)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(sc.lib) { it in
-                            LibTile(item: it, current: it.url == sc.url)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-
-            if !sc.url.isEmpty { NowPlaylist() }
-
-            Button(sc.showWidget ? "Скрыть плеер SoundCloud" : "Показать плеер SoundCloud") {
-                sc.userShown = !sc.showWidget
-                withAnimation { sc.showWidget.toggle() }
-            }
-            .font(.footnote)
-            .foregroundStyle(.white.opacity(0.6))
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
-            .opacity(sc.url.isEmpty ? 0 : 1)
-        }
-    }
-
-    private func add() {
-        let t = link
-        link = ""
-        focused = false
-        sc.add(text: t)
-    }
-}
-
-private struct LibTile: View {
-    @EnvironmentObject var sc: SoundCloudController
-    let item: SCLibItem
-    let current: Bool
-
-    var body: some View {
-        Button { sc.open(item.url, autoplay: true) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                ArtThumb(source: .web(item.art), size: 104, radius: 14)
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(current ? Color.white : Color.clear, lineWidth: 2))
-                Text(item.title).font(.caption.weight(.medium)).lineLimit(2).frame(width: 104, alignment: .leading)
-            }
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .topTrailing) {
-            Button { withAnimation { sc.removeFromLib(item.url) } } label: {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                    .frame(width: 22, height: 22)
-                    .background(.black.opacity(0.6), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(5)
-            .accessibilityLabel("Убрать «\(item.title)»")
-        }
-        .contextMenu {
-            Button("Убрать", systemImage: "trash", role: .destructive) { sc.removeFromLib(item.url) }
-        }
-    }
-}
-
-private struct NowPlaylist: View {
-    @EnvironmentObject var sc: SoundCloudController
+    @State private var importingFiles = false
+    @State private var linkSheet = false
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+    @State private var naming = false
+    @State private var newName = ""
+    @State private var confirmDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
-                ArtThumb(source: .web(sc.cover.isEmpty ? art300(sc.sounds.first?.artwork ?? "") : sc.cover),
-                         size: 92, radius: 14)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(sc.title.isEmpty ? "Плейлист" : sc.title).font(.headline).lineLimit(2)
-                    Text(sc.subtitle).font(.footnote).foregroundStyle(.white.opacity(0.6))
+            HStack(spacing: 8) {
+                Menu {
+                    Button("Файлы с телефона", systemImage: "folder") { importingFiles = true }
+                    Button("Ссылка: SoundCloud, Spotify, Яндекс", systemImage: "link") { linkSheet = true }
+                } label: {
+                    Label("Добавить", systemImage: "plus")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 18)
+                        .frame(minHeight: 44)
+                        .background(Color.white, in: Capsule())
+                }
+                Spacer()
+                if !library.tracks.isEmpty {
+                    Button(selecting ? "Готово" : "Выбрать") {
+                        withAnimation(.snappy) { selecting.toggle(); selected = [] }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 44)
+                    .glass(in: Capsule(), interactive: true)
+                    .buttonStyle(.plain)
+                }
+            }
+
+            BusyLine()
+
+            if library.tracks.isEmpty {
+                Hint("Добавь свои файлы или ссылку на трек SoundCloud, Spotify или Яндекс Музыки. Из выбранных треков потом можно собрать плейлист.")
+            } else {
+                if !selecting {
+                    PlayShuffleRow(ids: library.tracks.map(\.id), context: "Все треки")
+                }
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(library.tracks.enumerated()), id: \.element.id) { i, t in
+                        TrackRow(track: t, selecting: selecting, selected: selected.contains(t.id)) {
+                            if selecting { toggle(t.id) }
+                            else { player.play(library.tracks.map(\.id), start: i, context: "Все треки") }
+                        }
+                        .contextMenu { if !selecting { rowMenu(t) } }
+                    }
+                }
+            }
+
+            if selecting && !selected.isEmpty {
+                VStack(spacing: 8) {
+                    Text("Выбрано: \(selected.count)").font(.footnote).foregroundStyle(.white.opacity(0.6))
                     HStack(spacing: 8) {
-                        Button { sc.toggle() } label: {
-                            Label(sc.playing ? "Пауза" : "Слушать", systemImage: sc.playing ? "pause.fill" : "play.fill")
+                        Button { newName = ""; naming = true } label: {
+                            Label("Новый плейлист", systemImage: "music.note.list").lineLimit(1)
                         }
                         .buttonStyle(PrimaryButtonStyle())
-                        .disabled(!sc.has)
-                        Button { sc.shufflePlay() } label: { Image(systemName: "shuffle") }
-                            .buttonStyle(RoundIconButtonStyle(size: 46))
-                            .disabled(!sc.has)
-                            .accessibilityLabel("Перемешать и слушать")
+                        Menu {
+                            ForEach(library.playlists) { p in
+                                Button(p.name) { library.addToPlaylist(p.id, ordered(selected)); done("Добавлено в «\(p.name)»") }
+                            }
+                        } label: {
+                            Image(systemName: "text.badge.plus").frame(width: 46, height: 46).glass(in: Circle())
+                        }
+                        .disabled(library.playlists.isEmpty)
+                        .accessibilityLabel("Добавить в плейлист")
+                        Button(role: .destructive) { confirmDelete = true } label: {
+                            Image(systemName: "trash").foregroundStyle(.red).frame(width: 46, height: 46).glass(in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Удалить выбранные")
                     }
-                    .padding(.top, 4)
                 }
-            }
-
-            if !sc.waveNote.isEmpty { Hint(sc.waveNote) }
-
-            LazyVStack(spacing: 2) {
-                ForEach(Array(sc.sounds.enumerated()), id: \.offset) { i, s in
-                    SoundRow(i: i, sound: s)
-                }
+                .frame(maxWidth: .infinity)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .padding(.top, 6)
+        .fileImporter(isPresented: $importingFiles, allowedContentTypes: [.audio], allowsMultipleSelection: true) { r in
+            if case .success(let urls) = r { library.addFiles(urls) }
+        }
+        .sheet(isPresented: $linkSheet) { AddLinkSheet(asPlaylist: false, into: nil) }
+        .alert("Новый плейлист", isPresented: $naming) {
+            TextField("Название", text: $newName)
+            Button("Создать") {
+                let p = library.createPlaylist(newName, ordered(selected))
+                done("Плейлист «\(p.name)» создан")
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("\(selected.count) \(plural(selected.count, "трек", "трека", "треков"))")
+        }
+        .confirmationDialog("Удалить \(selected.count) \(plural(selected.count, "трек", "трека", "треков"))?",
+                            isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Удалить", role: .destructive) { library.removeTracks(selected); done("Удалено") }
+        } message: {
+            Text("Треки пропадут и из плейлистов.")
+        }
+    }
+
+    @ViewBuilder
+    private func rowMenu(_ t: LTrack) -> some View {
+        Menu("В плейлист", systemImage: "text.badge.plus") {
+            Button("Новый плейлист…", systemImage: "plus") { selected = [t.id]; newName = ""; naming = true }
+            ForEach(library.playlists) { p in
+                Button(p.name) { library.addToPlaylist(p.id, [t.id]); Services.shared.app.showToast("Добавлено в «\(p.name)»") }
+            }
+        }
+        Button("Удалить", systemImage: "trash", role: .destructive) { library.removeTracks([t.id]) }
+    }
+
+    private func toggle(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+
+    /// Выбранные — в порядке библиотеки
+    private func ordered(_ set: Set<String>) -> [String] { library.tracks.map(\.id).filter { set.contains($0) } }
+
+    private func done(_ msg: String) {
+        Services.shared.app.showToast(msg)
+        withAnimation(.snappy) { selecting = false; selected = [] }
     }
 }
 
-private struct SoundRow: View {
-    @EnvironmentObject var sc: SoundCloudController
-    let i: Int
-    let sound: SCSound
+// MARK: - Плейлисты
+
+private struct PID: Identifiable { let id: String }
+
+private struct PlaylistsPanel: View {
+    @EnvironmentObject var library: LibraryStore
+    @EnvironmentObject var player: PlayerController
+    @State private var linkSheet = false
+    @State private var naming = false
+    @State private var newName = ""
+    @State private var open: PID?
 
     var body: some View {
-        let cur = i == sc.index
-        Button { sc.tapTrack(i) } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    ArtThumb(source: .web(sound.artwork), size: 44, radius: 8)
-                    if cur {
-                        Color.black.opacity(0.45).clipShape(RoundedRectangle(cornerRadius: 8))
-                        if sc.playing {
-                            Image(systemName: "waveform").symbolEffect(.variableColor.iterative)
-                        } else {
-                            Image(systemName: "pause.fill").font(.footnote)
-                        }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Button { linkSheet = true } label: { Label("Перенести по ссылке", systemImage: "link").lineLimit(1) }
+                    .buttonStyle(PrimaryButtonStyle())
+                Button { newName = ""; naming = true } label: { Image(systemName: "plus") }
+                    .buttonStyle(RoundIconButtonStyle(size: 46))
+                    .accessibilityLabel("Новый пустой плейлист")
+            }
+
+            BusyLine()
+
+            if library.playlists.isEmpty {
+                Hint("Собери плейлист из своих треков (Треки → Выбрать) или перенеси готовый из SoundCloud, Spotify или Яндекс Музыки по ссылке.")
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
+                    ForEach(library.playlists) { p in
+                        Button { open = PID(id: p.id) } label: { PlaylistTile(p: p) }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Слушать", systemImage: "play.fill") { listen(p, shuffled: false) }
+                                Button("Перемешать", systemImage: "shuffle") { listen(p, shuffled: true) }
+                                Button("Удалить плейлист", systemImage: "trash", role: .destructive) { library.deletePlaylist(p.id) }
+                            }
                     }
                 }
-                .frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(sound.title.isEmpty ? "Загрузка…" : sound.title)
-                        .lineLimit(1)
-                        .fontWeight(cur ? .semibold : .regular)
-                    Text(sound.user).font(.caption).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                Text(sound.dur > 0 ? fmtTime(sound.dur / 1000) : "")
-                    .font(.caption).monospacedDigit().foregroundStyle(.white.opacity(0.5))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(cur ? Color.white.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .sheet(isPresented: $linkSheet) { AddLinkSheet(asPlaylist: true, into: nil) }
+        .sheet(item: $open) { PlaylistDetail(pid: $0.id) }
+        .alert("Новый плейлист", isPresented: $naming) {
+            TextField("Название", text: $newName)
+            Button("Создать") { open = PID(id: library.createPlaylist(newName, []).id) }
+            Button("Отмена", role: .cancel) {}
+        }
+    }
+
+    private func listen(_ p: Playlist, shuffled: Bool) {
+        let ids = library.tracks(of: p).map(\.id)
+        guard !ids.isEmpty else {
+            if !p.origin.isEmpty { library.importLink(p.origin, into: p.id) }
+            return
+        }
+        if shuffled { player.playShuffled(ids, context: p.name) } else { player.play(ids, start: 0, context: p.name) }
+    }
+}
+
+private struct PlaylistTile: View {
+    @EnvironmentObject var library: LibraryStore
+    let p: Playlist
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SquareArt(source: library.artSource(p), radius: 16)
+                .overlay(alignment: .bottomLeading) { sourceDots.padding(8) }
+            Text(p.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+            Text(count).font(.caption).foregroundStyle(.white.opacity(0.55))
+        }
+    }
+
+    private var count: String {
+        let n = library.tracks(of: p).count
+        if n == 0 { return p.origin.isEmpty ? "Пусто" : "Нажми, чтобы загрузить" }
+        return "\(n) \(plural(n, "трек", "трека", "треков"))"
+    }
+
+    /// Из каких сервисов треки
+    private var sourceDots: some View {
+        let set = Set(library.tracks(of: p).map(\.source))
+        return HStack(spacing: 3) {
+            ForEach(TrackSource.allCases.filter { set.contains($0) }, id: \.self) { SourceBadge(source: $0) }
+        }
     }
 }
 
@@ -281,7 +262,7 @@ private struct MicArea: View {
                       systemImage: music.micActive ? "stop.fill" : "mic.fill")
             }
             .buttonStyle(GlassButtonStyle(on: music.micActive, accent: Color(red: 1, green: 0.42, blue: 0.4)))
-            Hint("Лента реагирует на звук в комнате: колонку, телевизор или музыку из другого приложения на этом телефоне. Ничего не записывается.")
+            Hint("Лента реагирует на звук в комнате: колонку, телевизор или музыку из этого же телефона — в том числе Spotify и Яндекс. Микрофон точнее ровного ритма встроенных плееров. Ничего не записывается.")
         }
     }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct LentaApp: App {
     private let s = Services.shared
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
@@ -13,10 +14,15 @@ struct LentaApp: App {
                 .environmentObject(s.light)
                 .environmentObject(s.music)
                 .environmentObject(s.library)
-                .environmentObject(s.sc)
+                .environmentObject(s.files)
+                .environmentObject(s.web)
                 .environmentObject(s.player)
                 .environmentObject(s.timers)
                 .onAppear { s.start() }
+                .onChange(of: phase) { _, p in
+                    // вернулись в приложение — сразу ищем знакомую ленту
+                    if p == .active && !s.ble.isConnected { s.ble.autoConnect() }
+                }
         }
     }
 }

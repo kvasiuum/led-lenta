@@ -4,7 +4,7 @@ struct ColorTab: View {
     @EnvironmentObject var app: AppModel
 
     var body: some View {
-        Page {
+        VStack(spacing: 14) {
             VStack(spacing: 22) {
                 ColorWheel()
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 8), spacing: 8) {
@@ -25,8 +25,6 @@ struct ColorTab: View {
                 }
             }
             .card()
-
-            ColorFixCard()
         }
     }
 }

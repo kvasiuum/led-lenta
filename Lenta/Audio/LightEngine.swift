@@ -52,11 +52,12 @@ final class LightEngine: ObservableObject {
 
     /// Пересчитать, нужен ли цикл и откуда брать звук
     func refresh() {
-        let music = s.music, lib = s.library, sc = s.sc
+        let music = s.music
+        let cur = s.player.current
         let newPath: Path
         if music.micActive { newPath = .mic }
-        else if s.player.active == .sc && sc.playing { newPath = .sc }
-        else if s.player.active == .file && lib.isPlaying { newPath = .file }
+        else if let c = cur, c.source == .file, s.files.isPlaying, s.files.trackID == c.id { newPath = .file }
+        else if let c = cur, c.source != .file, s.web.playing, s.web.trackID == c.id { newPath = .sc }
         else { newPath = .idle }
 
         if newPath != path {
@@ -137,8 +138,8 @@ final class LightEngine: ObservableObject {
     }
 
     private func tickFile() {
-        let lib = s.library
-        guard let player = lib.player, let an = lib.analysis else { return }
+        let eng = s.files
+        guard let player = eng.player, let an = eng.analysis else { return }
         let sr = an.sampleRate
         // что слышно сейчас: позиция минус задержка вывода, плюс запас на Bluetooth ленты
         let latency = AVAudioSession.sharedInstance().outputLatency
@@ -191,9 +192,9 @@ final class LightEngine: ObservableObject {
         common(t: t, beat: beat, body: body)
     }
 
-    /// SoundCloud без микрофона: форма волны + сетка темпа
+    /// Встроенные плееры без микрофона: форма волны SoundCloud + сетка темпа, иначе ровный ритм
     private func tickSC(_ t: Double) {
-        let sc = s.sc, wave = sc.wave
+        let sc = s.web, wave = sc.wave
         let sensV = sensValue
         let pos = sc.nowPos() + 90                        // небольшой запас на задержку Bluetooth
         var beat = false, body = 0.0

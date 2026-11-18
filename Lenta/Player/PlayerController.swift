@@ -3,40 +3,103 @@ import Combine
 import MediaPlayer
 import UIKit
 
-/// Свои треки и SoundCloud делят один плеер: мини-полоска внизу, полный экран, экран блокировки.
+/// Один плеер на все источники: очередь треков, случайный порядок, повтор, экран блокировки.
 final class PlayerController: ObservableObject {
     private var s: Services { .shared }
 
-    enum Src { case file, sc }
     enum Repeat: String, Codable {
         case off, all, one
         var next: Repeat { self == .off ? .all : self == .all ? .one : .off }
         var label: String {
             switch self {
             case .off: return "Повтор выключен"
-            case .all: return "Плейлист по кругу"
-            case .one: return "Повтор одного трека"
+            case .all: return "Повтор плейлиста"
+            case .one: return "Повтор трека"
             }
         }
     }
 
-    @Published private(set) var active: Src?
+    @Published private(set) var queue: [String] = []
+    @Published private(set) var index = -1
+    /// Откуда играем: «Все треки» или название плейлиста
+    @Published private(set) var context = ""
     @Published private(set) var shuffle: Bool = Prefs.get("shuffle", false)
     @Published private(set) var repeatMode: Repeat = Prefs.get("repeat", Repeat.off)
     @Published var showFull = false
 
     private var bag = Set<AnyCancellable>()
     private var artCache: (String, UIImage)?
-    private var lastMetaKey = ""
+    /// Для «назад» в случайном порядке
+    private var history: [Int] = []
 
-    /// Перерисовывать плеер, когда меняются треки или SoundCloud
     func wire() {
+        s.files.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
+        s.web.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         s.library.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
-        s.sc.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         setupRemote()
     }
 
-    // MARK: - Какой трек следующий
+    // MARK: - Что играет
+
+    var current: LTrack? {
+        guard queue.indices.contains(index) else { return nil }
+        return s.library.track(queue[index])
+    }
+
+    var has: Bool { current != nil }
+
+    var playing: Bool {
+        guard let c = current else { return false }
+        return c.source == .file ? s.files.isPlaying : s.web.playing
+    }
+
+    var title: String { current?.title ?? "" }
+    var artist: String { current.map { $0.artist.isEmpty ? $0.source.title : $0.artist } ?? "" }
+    var art: ArtSource { s.library.artSource(current) }
+
+    var position: Double {
+        guard let c = current else { return 0 }
+        return c.source == .file ? s.files.position : s.web.nowPos() / 1000
+    }
+
+    var duration: Double {
+        guard let c = current else { return 0 }
+        if c.source == .file { return s.files.duration }
+        return s.web.dur > 0 ? s.web.dur / 1000 : c.duration
+    }
+
+    // MARK: - Запуск
+
+    /// Играть список; start — с какого трека; nil при shuffle — со случайного
+    func play(_ ids: [String], start: Int?, context: String) {
+        guard !ids.isEmpty else { return }
+        queue = ids
+        self.context = context
+        history = []
+        let i = start ?? (shuffle ? Int.random(in: 0..<ids.count) : 0)
+        playAt(i)
+    }
+
+    func playShuffled(_ ids: [String], context: String) {
+        if !shuffle { shuffle = true; Prefs.set("shuffle", true) }
+        play(ids, start: nil, context: context)
+    }
+
+    private func playAt(_ i: Int) {
+        guard !queue.isEmpty else { return }
+        let k = ((i % queue.count) + queue.count) % queue.count
+        guard let t = s.library.track(queue[k]) else { return }
+        if index >= 0 && index != k { history.append(index); if history.count > 200 { history.removeFirst() } }
+        index = k
+        if t.source == .file {
+            s.web.stop()
+            s.files.play(t, url: s.library.fileURL(t))
+        } else {
+            s.files.stop()
+            s.web.load(t)
+        }
+        changed()
+    }
 
     /// nil — остановиться; auto — прошлый трек закончился сам
     func pickNext(_ i: Int, _ n: Int, auto: Bool) -> Int? {
@@ -45,6 +108,54 @@ final class PlayerController: ObservableObject {
         if shuffle { return rnd(n, not: i) }
         if i + 1 < n { return i + 1 }
         return (repeatMode == .all || !auto) ? 0 : nil
+    }
+
+    // MARK: - Кнопки
+
+    func toggle() {
+        guard let c = current else { return }
+        if c.source == .file {
+            if s.files.trackID == c.id { s.files.toggle() } else { playAt(index) }
+        } else {
+            if s.web.trackID == c.id { s.web.toggle() } else { playAt(index) }
+        }
+    }
+
+    func pauseActive() {
+        s.files.pause()
+        s.web.pause()
+    }
+
+    func next() {
+        if let i = pickNext(index, queue.count, auto: false) { playAt(i) }
+    }
+
+    func prev() {
+        if position > 3 { seek(0); return }
+        if shuffle, let last = history.popLast() {
+            index = -1          // не записывать «назад» в историю
+            playAt(last)
+            return
+        }
+        playAt(index - 1)
+    }
+
+    func seek(_ t: Double) {
+        guard let c = current else { return }
+        if c.source == .file { s.files.seek(t) } else { s.web.seek(t) }
+        refreshNowPlaying()
+    }
+
+    func playIndex(_ i: Int) { playAt(i) }
+
+    /// Трек доиграл сам
+    func trackEnded() {
+        guard let c = current else { return }
+        if repeatMode == .one {
+            if c.source == .file { s.files.restart() } else { s.web.restart() }
+            return
+        }
+        if let i = pickNext(index, queue.count, auto: true) { playAt(i) } else { changed() }
     }
 
     func toggleShuffle() {
@@ -59,21 +170,16 @@ final class PlayerController: ObservableObject {
         s.app.showToast(repeatMode.label)
     }
 
-    // MARK: - Активный источник
-
-    func setActive(_ src: Src) {
-        guard active != src else { return }
-        pauseActive()
-        active = src
-        changed()
-    }
-
-    func pauseActive() {
-        switch active {
-        case .file: s.library.pause()
-        case .sc: s.sc.pause()
-        case nil: break
+    /// Треки удалены из библиотеки
+    func removed(_ ids: Set<String>) {
+        let cur = queue.indices.contains(index) ? queue[index] : nil
+        if let cur, ids.contains(cur) {
+            s.files.stop(); s.web.stop()
         }
+        queue.removeAll { ids.contains($0) }
+        history = []
+        if let cur, let k = queue.firstIndex(of: cur) { index = k } else { index = -1 }
+        changed()
     }
 
     /// Что-то поменялось: свет, экран блокировки, фоновый режим
@@ -83,134 +189,34 @@ final class PlayerController: ObservableObject {
         s.timers.updateKeepAlive()
     }
 
-    var has: Bool {
-        switch active {
-        case .file: return s.library.current != nil
-        case .sc: return s.sc.has
-        case nil: return false
-        }
-    }
-
-    var playing: Bool {
-        switch active {
-        case .file: return s.library.isPlaying
-        case .sc: return s.sc.playing
-        case nil: return false
-        }
-    }
-
-    var title: String {
-        switch active {
-        case .file: return s.library.current?.displayTitle ?? ""
-        case .sc:
-            if let c = s.sc.currentSound, !c.title.isEmpty { return c.title }
-            return s.sc.title.isEmpty ? "SoundCloud" : s.sc.title
-        case nil: return ""
-        }
-    }
-
-    var artist: String {
-        switch active {
-        case .file: return s.library.current?.artist ?? "Свой трек"
-        case .sc: return s.sc.currentSound?.user ?? "SoundCloud"
-        case nil: return ""
-        }
-    }
-
-    var album: String { active == .sc ? (s.sc.title.isEmpty ? "SoundCloud" : s.sc.title) : "Свои треки" }
-
-    /// Обложка: локальный файл или адрес в сети
-    var art: ArtSource {
-        switch active {
-        case .file:
-            if let t = s.library.current, let u = s.library.artURL(t) { return .local(u) }
-            return .empty
-        case .sc:
-            let a = s.sc.artURLString
-            guard !a.isEmpty, let u = URL(string: a) else { return .empty }
-            return .remote(u)
-        case nil: return .empty
-        }
-    }
-
-    var position: Double {
-        switch active {
-        case .file: return s.library.position
-        case .sc: return s.sc.nowPos() / 1000
-        case nil: return 0
-        }
-    }
-
-    var duration: Double {
-        switch active {
-        case .file: return s.library.duration
-        case .sc: return s.sc.dur / 1000
-        case nil: return 0
-        }
-    }
-
-    func toggle() {
-        switch active {
-        case .file: s.library.toggle()
-        case .sc: s.sc.toggle()
-        case nil: break
-        }
-    }
-
-    func next() {
-        switch active {
-        case .file: s.library.next()
-        case .sc: s.sc.next()
-        case nil: break
-        }
-    }
-
-    func prev() {
-        switch active {
-        case .file: s.library.prev()
-        case .sc: s.sc.prev()
-        case nil: break
-        }
-    }
-
-    func seek(_ t: Double) {
-        switch active {
-        case .file: s.library.seek(t)
-        case .sc: s.sc.seek(t)
-        case nil: break
-        }
-    }
-
     // MARK: - Экран блокировки и пульт
 
     func refreshNowPlaying() {
         let center = MPNowPlayingInfoCenter.default()
         guard has else {
             center.nowPlayingInfo = nil
-            center.playbackState = .stopped
             return
         }
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: title,
             MPMediaItemPropertyArtist: artist,
-            MPMediaItemPropertyAlbumTitle: album,
+            MPMediaItemPropertyAlbumTitle: context,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
         ]
-        let key = art.key
+        let a = art, key = a.key
         if let c = artCache, c.0 == key {
             let img = c.1
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: img.size) { _ in img }
         } else if !key.isEmpty {
-            loadArt(art) { [weak self] img in
+            loadArt(a) { [weak self] img in
                 guard let self, let img else { return }
                 self.artCache = (key, img)
                 self.refreshNowPlaying()
             }
         }
         center.nowPlayingInfo = info
-        center.playbackState = playing ? .playing : .paused
     }
 
     private func loadArt(_ a: ArtSource, done: @escaping (UIImage?) -> Void) {

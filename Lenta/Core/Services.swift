@@ -10,8 +10,9 @@ final class Services {
     let live = LiveLight()
     let light = LightEngine()
     let music = MusicModel()
-    let library = LocalLibrary()
-    let sc = SoundCloudController()
+    let library = LibraryStore()
+    let files = FileEngine()
+    let web = WebPlayer()
     let player = PlayerController()
     let timers = TimerModel()
 

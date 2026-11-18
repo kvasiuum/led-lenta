@@ -1,29 +1,24 @@
 import Foundation
 import AVFoundation
 
-/// Источник звука для светомузыки: свои треки, SoundCloud или микрофон
+/// Раздел «Музыка»: вкладки и микрофон для светомузыки
 final class MusicModel: ObservableObject {
     private var s: Services { .shared }
 
-    enum Source: String, CaseIterable, Identifiable {
-        case file, sc, mic
+    /// Вкладки раздела «Музыка»
+    enum Tab: String, CaseIterable, Identifiable {
+        case tracks, playlists, mic
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .file: return "Свои треки"
-            case .sc: return "SoundCloud"
+            case .tracks: return "Треки"
+            case .playlists: return "Плейлисты"
             case .mic: return "Микрофон"
             }
         }
     }
 
-    @Published var source: Source = .file {
-        didSet {
-            guard source != oldValue else { return }
-            if source != .mic { stopMic() }
-            if source == .mic { s.player.pauseActive() }
-        }
-    }
+    @Published var tab: Tab = .tracks
     @Published private(set) var micActive = false
     let mic = MicListener()
 
@@ -50,6 +45,7 @@ final class MusicModel: ObservableObject {
         guard micActive else { return }
         mic.stop()
         micActive = false
+        if s.player.playing { AudioSessionManager.activate() }   // обратно к обычному воспроизведению
         s.light.refresh()
         s.timers.updateKeepAlive()
     }

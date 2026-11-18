@@ -10,7 +10,7 @@ struct TimerTab: View {
     @State private var days: Set<Int> = [0, 1, 2, 3, 4, 5, 6]
 
     var body: some View {
-        Page {
+        VStack(spacing: 14) {
             // ---- таймер сна
             VStack(alignment: .leading, spacing: 14) {
                 SectionTitle("Выключить через")
