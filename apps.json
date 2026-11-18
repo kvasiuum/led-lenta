@@ -19,6 +19,15 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.0.10",
+          "buildVersion": "10",
+          "date": "2026-11-18T22:48:17Z",
+          "localizedDescription": "v 0.5.1 ipa",
+          "downloadURL": "https://github.com/kvasiuum/led-lenta/releases/download/v1.0.10/Lenta.ipa",
+          "size": 5332102,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "1.0.9",
           "buildVersion": "9",
           "date": "2026-11-18T22:27:54Z",
