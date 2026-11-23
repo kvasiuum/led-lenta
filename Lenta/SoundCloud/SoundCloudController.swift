@@ -304,7 +304,8 @@ final class WebPlayer: NSObject, ObservableObject {
     }
 
     private func scPage(_ permalink: String) -> String {
-        let enc = permalink.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? permalink
+        let widgetURL = Importer.scWidgetURL(permalink)
+        let enc = widgetURL.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? widgetURL
         let opts = "auto_play=false&visual=false&show_comments=false&show_reposts=false&hide_related=true&show_teaser=false&buying=false&sharing=false&download=false"
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">

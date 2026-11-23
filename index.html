@@ -1565,6 +1565,14 @@
   };
 
   const WIDGET_OPTS = { auto_play: false, visual: false, show_comments: false, show_reposts: false, hide_related: true, show_teaser: false, buying: false, sharing: false, download: false };
+  function scWidgetUrl(url) {
+    const link = new URL(url);
+    const secret = link.pathname.match(/\/(s-[A-Za-z0-9]+)\/?$/);
+    if (!secret) return url;
+    link.pathname = link.pathname.slice(0, secret.index);
+    link.searchParams.set('secret_token', secret[1]);
+    return link.href;
+  }
   async function openSc(url, autoplay) {
     try { await loadScApi(); } catch { scApi = null; toast('Не удалось загрузить SoundCloud. Проверь интернет'); return; }
     // the same playlist again: just play it, don't reload and restart it
@@ -1588,7 +1596,7 @@
     // a fresh hidden player per playlist: widget.load() on the old one doesn't reliably report READY again,
     // which left the playlist «Загрузка…» forever
     const old = $('scFrame'), f = old.cloneNode(false);
-    f.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(url) + '&' +
+    f.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(scWidgetUrl(url)) + '&' +
       Object.entries(WIDGET_OPTS).map(([k, v]) => k + '=' + v).join('&');
     old.replaceWith(f);
     bindWidget(f);
