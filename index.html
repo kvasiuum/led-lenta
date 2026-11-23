@@ -1554,7 +1554,14 @@
     }
     $('scUrl').value = '';
     maybeAutoSync();
-    openSc(url.split('?')[0].replace('//m.', '//').replace(/\/$/, ''), true);
+    const link = new URL(url);
+    if (link.hostname === 'm.soundcloud.com') link.hostname = 'soundcloud.com';
+    link.pathname = link.pathname.replace(/\/+$/, '');
+    for (const name of new Set(link.searchParams.keys())) {
+      if (name !== 'secret_token') link.searchParams.delete(name);
+    }
+    link.hash = '';
+    openSc(link.href, true);
   };
 
   const WIDGET_OPTS = { auto_play: false, visual: false, show_comments: false, show_reposts: false, hide_related: true, show_teaser: false, buying: false, sharing: false, download: false };
