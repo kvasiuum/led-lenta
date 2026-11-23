@@ -62,6 +62,18 @@ enum Importer {
 
     // MARK: - SoundCloud
 
+    static func scWidgetURL(_ link: String) -> String {
+        guard var components = URLComponents(string: link) else { return link }
+        let path = components.percentEncodedPath
+        guard let suffix = path.range(of: #"/s-[A-Za-z0-9]+/?$"#, options: .regularExpression) else { return link }
+        let token = path[suffix].split(separator: "/")[0]
+        components.percentEncodedPath = String(path[..<suffix.lowerBound])
+        var query = components.percentEncodedQueryItems?.filter { $0.name != "secret_token" } ?? []
+        query.append(URLQueryItem(name: "secret_token", value: String(token)))
+        components.percentEncodedQueryItems = query
+        return components.string ?? link
+    }
+
     private static func soundcloud(_ link: String) async -> Result<ImportResult, ImportError> {
         guard var components = URLComponents(string: link),
               let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
@@ -315,7 +327,8 @@ final class SCResolver: NSObject, WKScriptMessageHandler {
         wv.isUserInteractionEnabled = false
         keyWindow()?.addSubview(wv)
         webView = wv
-        let enc = url.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? url
+        let widgetURL = Importer.scWidgetURL(url)
+        let enc = widgetURL.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? widgetURL
         let html = """
         <!doctype html><html><head><script src="https://w.soundcloud.com/player/api.js"></script></head><body>
         <iframe id="f" src="https://w.soundcloud.com/player/?url=\(enc)&auto_play=false"></iframe>
