@@ -63,10 +63,20 @@ enum Importer {
     // MARK: - SoundCloud
 
     private static func soundcloud(_ link: String) async -> Result<ImportResult, ImportError> {
-        var u = String(link.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
-        u = u.replacingOccurrences(of: "//m.", with: "//")
-        while u.hasSuffix("/") { u.removeLast() }
-        guard u.range(of: #"^https?://(www\.)?soundcloud\.com/.+"#, options: .regularExpression) != nil else {
+        guard var components = URLComponents(string: link),
+              let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = components.host?.lowercased(), ["soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"].contains(host),
+              components.user == nil, components.password == nil, components.port == nil else {
+            return .failure(ImportError(message: "Нужна ссылка вида soundcloud.com/…"))
+        }
+        if host == "m.soundcloud.com" { components.host = "soundcloud.com" }
+        var path = components.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        components.percentEncodedPath = path
+        let access = components.percentEncodedQueryItems?.filter { $0.name == "secret_token" } ?? []
+        components.percentEncodedQueryItems = access.isEmpty ? nil : access
+        components.fragment = nil
+        guard !path.isEmpty, let u = components.string else {
             return .failure(ImportError(message: "Нужна ссылка вида soundcloud.com/…"))
         }
         let sounds = await SCResolver.resolve(u)
