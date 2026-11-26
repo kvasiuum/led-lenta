@@ -39,6 +39,7 @@ struct DeviceCard: View {
                         .lineLimit(1).truncationMode(.tail)
                 }
                 Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1).padding(.vertical, 8)
+                Toggle("Радуга", isOn: Binding(get: { app.now == .rainbow }, set: { _ in app.toggleRainbow() }))
                 SliderRow(label: "Яркость", value: "\(Int(app.brightness.rounded()))%",
                           v: Binding(get: { app.brightness }, set: { app.setBrightness($0) }),
                           range: 1...100, tint: app.currentRGB.color)
@@ -111,6 +112,7 @@ struct StripPreview: View {
         switch app.now {
         case .off: return (Color(red: 0.15, green: 0.16, blue: 0.18), 0)
         case .fx: return (Color(hue: Double(i) / 24, saturation: 0.85, brightness: 1), 1)
+        case .rainbow: return (live.rgb.color, 1)
         case .music: return (live.rgb.color, live.level)
         case .color: return (app.currentRGB.color, 1)
         }

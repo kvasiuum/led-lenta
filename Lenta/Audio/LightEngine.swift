@@ -151,7 +151,7 @@ final class LightEngine: ObservableObject {
         clock.stop { [weak self] in
             guard let self else { return }
             self.s.live.level = 0
-            if !self.running {
+            if !self.running && self.s.app.now == .music {
                 self.s.app.sendColor(self.s.app.currentRGB)
                 self.s.app.setNow(.color)
             }

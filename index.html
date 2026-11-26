@@ -81,6 +81,9 @@
   .field + .field { margin-top: 18px; }
   .label { display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); font-size: 14px; margin: 0 0 6px; }
   .num { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 500; }
+  #homeRainbow { min-height: 44px; margin-bottom: 12px; }
+  #homeRainbow[aria-pressed=true] { background: var(--text); color: var(--surface); }
+  #homeRainbow[aria-pressed=true]::before { content: "✓"; margin-right: 6px; }
   .device .bright-field { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
 
   /* range */
@@ -561,6 +564,7 @@
 
       <div class="strip" id="strip" aria-hidden="true"></div>
       <div class="field bright-field">
+        <button type="button" id="homeRainbow" class="btn" aria-pressed="false">Радуга</button>
         <div class="label"><label for="bright">Яркость</label><span class="num"><span id="brVal">100</span>%</span></div>
         <input type="range" id="bright" min="1" max="100" value="100">
       </div>
@@ -1916,6 +1920,7 @@
   }
   /* The clock lives on the audio thread, so it keeps ticking when the tab is in the background
      or the window is minimised (requestAnimationFrame and timers are paused/throttled there). */
+  let musicFrame = 0;
   let clockNode = null, clockTimer = 0, clockReady = null;
   const CLOCK_SRC = `class LentaClock extends AudioWorkletProcessor {
     constructor() { super(); this.n = 0; }
@@ -1923,7 +1928,13 @@
   }
   registerProcessor('lenta-clock', LentaClock);`;
   function startClock() {
-    const tick = () => { if (raf) loop(performance.now()); };
+    const frame = t => {
+      if (!raf) return;
+      loop(t);
+      musicFrame = requestAnimationFrame(frame);
+    };
+    musicFrame = requestAnimationFrame(frame);
+    const tick = () => { if (raf && document.hidden) loop(performance.now()); };
     if (actx.audioWorklet && window.AudioWorkletNode) {
       clockReady = clockReady || actx.audioWorklet.addModule(URL.createObjectURL(new Blob([CLOCK_SRC], { type: 'application/javascript' })));
       clockReady.then(() => {
@@ -1936,6 +1947,7 @@
     setTimeout(() => { if (raf && actx.state !== 'running' && !clockTimer) clockTimer = setInterval(tick, 12); }, 600);
   }
   function stopClock() {
+    cancelAnimationFrame(musicFrame);
     if (clockNode) { clockNode.port.onmessage = null; clockNode.disconnect(); clockNode = null; }
     clearInterval(clockTimer); clockTimer = 0;
   }
@@ -2159,12 +2171,38 @@
     stripEl.style.setProperty('--c', `rgb(${rgb})`);
     stripEl.style.setProperty('--l', l.toFixed(3));
   }
+  let rainbowFrame = 0;
+  $('homeRainbow').onclick = () => {
+    if (nowState === 'rainbow') { applyColor(); return; }
+    if (needConn()) return;
+    if (!powered) setPower(true);
+    stopAllMusic();
+    stopAutoFx();
+    stopLoop();
+    setNow('rainbow');
+    const start = performance.now();
+    let lastWrite = -Infinity;
+    function frame(t) {
+      if (!ch) { setNow('color'); return; }
+      const rgb = hsv2rgb((t - start) * 0.036, 1, 1);
+      paintStrip(rgb);
+      if (t - lastWrite >= 40) { send('color', CMD.color(rgb)); lastWrite = t; }
+      rainbowFrame = requestAnimationFrame(frame);
+    }
+    rainbowFrame = requestAnimationFrame(frame);
+  };
   function setNow(kind) {
+    if (kind !== 'rainbow') {
+      cancelAnimationFrame(rainbowFrame);
+      if (lastKind === 'rainbow') lastKind = 'color';
+    }
+    $('homeRainbow').setAttribute('aria-pressed', String(kind === 'rainbow'));
     if (!powered && kind !== 'off') { lastKind = kind; kind = 'off'; }
     nowState = kind; if (kind !== 'off') lastKind = kind;
     stripEl.className = 'strip ' + kind;
     let title, sub;
     if (kind === 'off') { title = 'Выключено'; sub = 'Нажми кнопку питания, чтобы включить'; }
+    else if (kind === 'rainbow') { title = 'Радуга'; sub = 'Плавная смена цвета'; }
     else if (kind === 'fx') { title = 'Режим ' + fx; sub = autoTimer ? 'Автосмена каждые 10 секунд' : 'Встроенный эффект контроллера'; }
     else if (kind === 'music') { title = 'Под музыку'; sub = MODE_NAMES[mode]; }
     else { const rgb = currentRGB(); paintStrip(rgb, 1); title = 'Статичный цвет'; sub = `RGB ${rgb.join(' · ')}`; }
