@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum NowKind { case color, fx, music, off }
+enum NowKind { case color, fx, music, rainbow, off }
 
 /// Цвет, яркость, питание, встроенные режимы, порядок каналов и подсказки.
 final class AppModel: ObservableObject {
@@ -10,6 +10,32 @@ final class AppModel: ObservableObject {
     @Published var brightness: Double = Prefs.get("bright", 100.0)
     @Published private(set) var powered = true
     @Published private(set) var now: NowKind = .color
+    private var rainbowClock: CADisplayLink?
+    private var rainbowStart = 0.0
+    private var lastRainbowWrite = 0.0
+
+    func toggleRainbow() {
+        if now == .rainbow { applyColor(); return }
+        guard !needConn() else { return }
+        if !powered { setPower(true) }
+        stopAllMusic()
+        stopAutoFx()
+        setNow(.rainbow)
+        rainbowStart = CACurrentMediaTime()
+        let clock = CADisplayLink(target: self, selector: #selector(rainbowFrame(_:)))
+        clock.add(to: .main, forMode: .common)
+        rainbowClock = clock
+    }
+
+    @objc private func rainbowFrame(_ clock: CADisplayLink) {
+        guard s.ble.isConnected else { setNow(.color); return }
+        guard clock.timestamp - lastRainbowWrite >= 0.04 else { return }
+        lastRainbowWrite = clock.timestamp
+        let rgb = hsv2rgb((clock.timestamp - rainbowStart) * 36, 1, 1)
+        s.live.rgb = rgb
+        sendColor(rgb)
+    }
+
     private var lastKind: NowKind = .color
 
     // режимы
@@ -118,6 +144,11 @@ final class AppModel: ObservableObject {
     }
 
     func setNow(_ kind: NowKind) {
+        if kind != .rainbow {
+            rainbowClock?.invalidate()
+            rainbowClock = nil
+            if lastKind == .rainbow { lastKind = .color }
+        }
         var k = kind
         if !powered && k != .off { lastKind = k; k = .off }
         if k != .off { lastKind = k }
@@ -126,6 +157,7 @@ final class AppModel: ObservableObject {
 
     var nowTitle: String {
         switch now {
+        case .rainbow: return "Радуга"
         case .off: return "Выключено"
         case .fx: return "Режим \(fx)"
         case .music: return "Под музыку"
@@ -135,6 +167,7 @@ final class AppModel: ObservableObject {
 
     var nowSubtitle: String {
         switch now {
+        case .rainbow: return "Плавная смена цвета"
         case .off: return "Нажми кнопку питания, чтобы включить"
         case .fx: return autoFx ? "Автосмена каждые 10 секунд" : "Встроенный эффект контроллера"
         case .music: return s.light.mode.title
