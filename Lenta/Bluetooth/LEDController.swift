@@ -28,6 +28,8 @@ final class LEDController: NSObject, ObservableObject {
     }
 
     static let serviceUUID = CBUUID(string: "FFE0")
+    static let elkServiceUUID = CBUUID(string: "FFF0")
+    static let elkCharUUID = CBUUID(string: "FFF3")
     static let charUUID = CBUUID(string: "FFE1")
     private static let lastDeviceKey = "lenta.lastDeviceID"
     private static let lastNameKey = "lenta.lastDeviceName"
@@ -116,10 +118,11 @@ final class LEDController: NSObject, ObservableObject {
     @discardableResult
     func send(_ key: String, _ bytes: [UInt8]) -> Bool {
         guard isConnected else { return false }
-        let data = Data(bytes)
         q.async {
+            let data = self.ch?.uuid == Self.elkCharUUID ? Cmd.elk(key, bytes) : bytes
+            guard !data.isEmpty else { return }
             self.pending.removeAll { $0.0 == key }
-            self.pending.append((key, data))
+            self.pending.append((key, Data(data)))
             self.pump()
         }
         return true
@@ -137,7 +140,7 @@ final class LEDController: NSObject, ObservableObject {
             connect(p)
             return
         }
-        let already = central.retrieveConnectedPeripherals(withServices: [Self.serviceUUID])
+        let already = central.retrieveConnectedPeripherals(withServices: [Self.serviceUUID, Self.elkServiceUUID])
         if let p = already.first(where: { Self.nameMatches($0.name) }) ?? already.first {
             connect(p)
             return
@@ -175,7 +178,7 @@ final class LEDController: NSObject, ObservableObject {
 
     private static func nameMatches(_ name: String?) -> Bool {
         guard let n = name else { return false }
-        return n.hasPrefix("LEDDMX") || n.hasPrefix("LEDBLE")
+        return n.hasPrefix("LEDDMX") || n.hasPrefix("LEDBLE") || n.hasPrefix("ELK-BLEDDM")
     }
 
     private func connect(_ p: CBPeripheral) {
@@ -256,7 +259,7 @@ extension LEDController: CBCentralManagerDelegate {
         guard let list = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral], let p = list.first else { return }
         peripheral = p
         p.delegate = self
-        if p.state == .connected { p.discoverServices([Self.serviceUUID]) }
+        if p.state == .connected { p.discoverServices([Self.serviceUUID, Self.elkServiceUUID]) }
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
@@ -280,7 +283,7 @@ extension LEDController: CBCentralManagerDelegate {
         let advName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let name = advName ?? p.name ?? ""
         let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-        let matches = Self.nameMatches(name) || services.contains(Self.serviceUUID)
+        let matches = Self.nameMatches(name) || services.contains(Self.serviceUUID) || services.contains(Self.elkServiceUUID)
         seen[p.identifier] = p
         seenInfo[p.identifier] = Found(id: p.identifier, name: name, rssi: RSSI.intValue, matches: matches)
         refreshFoundListQ()
@@ -297,7 +300,7 @@ extension LEDController: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didConnect p: CBPeripheral) {
         guard p.identifier == peripheral?.identifier else { central.cancelPeripheralConnection(p); return }
         setStatus(.connecting)
-        p.discoverServices([Self.serviceUUID])
+        p.discoverServices([Self.serviceUUID, Self.elkServiceUUID])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
@@ -340,16 +343,20 @@ extension LEDController: CBCentralManagerDelegate {
 extension LEDController: CBPeripheralDelegate {
 
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
-        guard let s = p.services?.first(where: { $0.uuid == Self.serviceUUID }) else {
-            setStatus(.failed("У устройства нет сервиса FFE0"))
+        let hasLegacyService = p.services?.contains { $0.uuid == Self.serviceUUID } == true
+        let serviceID = hasLegacyService ? Self.serviceUUID : Self.elkServiceUUID
+        guard let s = p.services?.first(where: { $0.uuid == serviceID }) else {
+            setStatus(.failed("У устройства нет сервиса \(serviceID.uuidString)"))
             return
         }
-        p.discoverCharacteristics([Self.charUUID], for: s)
+        let writeID = serviceID == Self.elkServiceUUID ? Self.elkCharUUID : Self.charUUID
+        p.discoverCharacteristics([writeID], for: s)
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard let c = service.characteristics?.first(where: { $0.uuid == Self.charUUID }) else {
-            setStatus(.failed("Нет характеристики FFE1"))
+        let writeID = service.uuid == Self.elkServiceUUID ? Self.elkCharUUID : Self.charUUID
+        guard let c = service.characteristics?.first(where: { $0.uuid == writeID }) else {
+            setStatus(.failed("Нет характеристики \(writeID.uuidString)"))
             return
         }
         linkReady(p, c)
@@ -363,6 +370,16 @@ extension LEDController: CBPeripheralDelegate {
 // MARK: - Команды 7B … BF
 
 enum Cmd {
+    static func elk(_ key: String, _ bytes: [UInt8]) -> [UInt8] {
+        switch key {
+        case "power": return [0x7E, 0, 4, bytes[3] == 1 ? 0xF0 : 0, 0, bytes[3], 0xFF, 0, 0xEF]
+        case "color": return [0x7E, 0, 5, 3, bytes[3], bytes[4], bytes[5], 0, 0xEF]
+        case "brightness": return [0x7E, 0, 1, UInt8((Double(bytes[4]) * 255 / 100).rounded()), 0, 0, 0, 0, 0xEF]
+        case "effect": return [0x7E, 0, 3, bytes[3], 0, 0, 0, 0, 0xEF]
+        default: return []
+        }
+    }
+
     static func power(_ on: Bool) -> [UInt8] {
         [0x7B, 0x04, 0x04, on ? 1 : 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xBF]
     }
