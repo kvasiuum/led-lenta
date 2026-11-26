@@ -855,11 +855,21 @@
     effect: n => [0x7B, 0xFF, 0x03, clamp(n | 0, 1, 210), 0xFF, 0xFF, 0xFF, 0xFF, 0xBF],
   };
 
+  function elkCommand(key, bytes) {
+    switch (key) {
+      case 'power': return [0x7E, 0, 4, bytes[3] ? 0xF0 : 0, 0, bytes[3], 0xFF, 0, 0xEF];
+      case 'color': return [0x7E, 0, 5, 3, bytes[3], bytes[4], bytes[5], 0, 0xEF];
+      case 'brightness': return [0x7E, 0, 1, Math.round(bytes[4] * 255 / 100), 0, 0, 0, 0, 0xEF];
+      case 'effect': return [0x7E, 0, 3, bytes[3], 0, 0, 0, 0, 0xEF];
+    }
+  }
+
   // one write at a time; for each kind of command only the latest value is sent
   const pending = new Map(); let busy = false;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   function send(key, bytes) {
     if (!ch) return false;
+    if (ch.uuid === ELK_CHAR) bytes = elkCommand(key, bytes);
     pending.delete(key); pending.set(key, new Uint8Array(bytes)); pump(); return true;
   }
   async function pump() {
@@ -875,14 +885,18 @@
   function needConn() { if (!ch) { toast('Сначала подключи ленту'); return true; } return false; }
 
   function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = cls || ''; }
-  const NAME_RE = /^(LEDDMX|LEDBLE)/;
+  const ELK_SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb';
+  const ELK_CHAR = '0000fff3-0000-1000-8000-00805f9b34fb';
+  const NAME_RE = /^(LEDDMX|LEDBLE|ELK-BLEDDM)/;
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
   let reconnecting = false, userDisconnect = false;
 
   async function attach() {
     setStatus('Подключаюсь…');
     const server = await withTimeout(device.gatt.connect(), 10000);
-    ch = await (await server.getPrimaryService(SERVICE)).getCharacteristic(CHAR);
+    const elk = device.name?.startsWith('ELK-BLEDDM');
+    const service = await server.getPrimaryService(elk ? ELK_SERVICE : SERVICE);
+    ch = await service.getCharacteristic(elk ? ELK_CHAR : CHAR);
     setStatus(device.name || 'Подключено', 'on');
     $('connect').hidden = true; $('power').hidden = false; $('connectHelp').hidden = true;
     store.set('lastDevice', { id: device.id, name: device.name || '' });
@@ -954,9 +968,9 @@
   $('connect').onclick = async () => {
     if (device && !device.gatt.connected) { try { await attach(); return; } catch {} }
     if (await autoConnect(false)) return;
-    connectWith({ filters: [{ namePrefix: 'LEDDMX' }, { namePrefix: 'LEDBLE' }, { services: [SERVICE] }], optionalServices: [SERVICE] });
+    connectWith({ filters: [{ namePrefix: 'LEDDMX' }, { namePrefix: 'LEDBLE' }, { namePrefix: 'ELK-BLEDDM' }, { services: [SERVICE] }], optionalServices: [SERVICE, ELK_SERVICE] });
   };
-  $('connectAll').onclick = () => connectWith({ acceptAllDevices: true, optionalServices: [SERVICE] });
+  $('connectAll').onclick = () => connectWith({ acceptAllDevices: true, optionalServices: [SERVICE, ELK_SERVICE] });
   // on open: reconnect by itself to the strip used last time
   setTimeout(() => { if (getBT()) autoConnect(true); }, 700);
 
