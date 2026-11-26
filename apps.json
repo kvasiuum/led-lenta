@@ -3,7 +3,7 @@
   "identifier": "io.github.kvasiuum.lenta.source",
   "subtitle": "Пульт LED-ленты LEDDMX",
   "description": "Обновления приложения «Лента». Собирается автоматически после каждого изменения.",
-  "iconURL": "https://raw.githubusercontent.com/kvasiuum/led-lenta/refs/heads/claude/loving-wright-wt954c/Lenta/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+  "iconURL": "https://raw.githubusercontent.com/kvasiuum/led-lenta/refs/heads/feature/rainbow-wave/Lenta/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
   "website": "https://led-lenta.vercel.app",
   "tintColor": "#5b93ff",
   "apps": [
@@ -13,11 +13,20 @@
       "developerName": "kvasiuum",
       "subtitle": "Пульт LED-ленты: цвет, режимы, светомузыка",
       "localizedDescription": "Управление LED-лентой LEDDMX по Bluetooth: цветовой круг, 210 режимов, светомузыка под свои треки, SoundCloud, Spotify, Яндекс Музыку и микрофон, таймер сна и расписание.",
-      "iconURL": "https://raw.githubusercontent.com/kvasiuum/led-lenta/refs/heads/claude/loving-wright-wt954c/Lenta/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "iconURL": "https://raw.githubusercontent.com/kvasiuum/led-lenta/refs/heads/feature/rainbow-wave/Lenta/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
       "tintColor": "#5b93ff",
       "category": "utilities",
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.0.17",
+          "buildVersion": "17",
+          "date": "2026-11-26T14:13:05Z",
+          "localizedDescription": "Add standalone rainbow lighting, display sync and Yandex My Wave",
+          "downloadURL": "https://github.com/kvasiuum/led-lenta/releases/download/v1.0.17/Lenta.ipa",
+          "size": 5343123,
+          "minOSVersion": "17.0"
+        },
         {
           "version": "1.0.16",
           "buildVersion": "16",
