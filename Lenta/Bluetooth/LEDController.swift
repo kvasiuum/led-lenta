@@ -17,6 +17,12 @@ final class LEDController: NSObject, ObservableObject {
         var matches: Bool
     }
 
+    struct Remembered: Codable, Identifiable {
+        let id: UUID
+        let name: String
+    }
+
+    @Published private(set) var remembered: [Remembered] = Prefs.get("usedStrips", [])
     // MARK: опубликованное состояние (только main)
     @Published private(set) var status: Status = .idle
     @Published private(set) var isConnected = false
@@ -57,6 +63,10 @@ final class LEDController: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        if remembered.isEmpty, let raw = UserDefaults.standard.string(forKey: Self.lastDeviceKey),
+           let id = UUID(uuidString: raw) {
+            remembered = [Remembered(id: id, name: UserDefaults.standard.string(forKey: Self.lastNameKey) ?? "Лента")]
+        }
         // восстановление: iOS сама поднимет приложение, когда лента снова появится рядом
         central = CBCentralManager(delegate: self, queue: q, options: [
             CBCentralManagerOptionShowPowerAlertKey: true,
@@ -70,9 +80,7 @@ final class LEDController: NSObject, ObservableObject {
     func connectTapped() {
         showPicker = true
         q.async {
-            if let p = self.peripheral, p.state != .connected {
-                self.connect(p)
-            }
+            self.autoScan = false
             self.startScan()
         }
     }
@@ -80,7 +88,13 @@ final class LEDController: NSObject, ObservableObject {
     func choose(_ id: UUID) {
         showPicker = false
         q.async {
-            guard let p = self.seen[id] else { return }
+            guard let p = self.seen[id] ?? self.central.retrievePeripherals(withIdentifiers: [id]).first else {
+                self.setStatus(.failed("Устройство недоступно. Повтори поиск рядом с лентой"))
+                return
+            }
+            self.wantAuto = true
+            self.userDisconnect = false
+            if self.peripheral?.identifier == id && self.ch != nil { self.stopScanQ(); return }
             self.stopScanQ()
             // другая лента: старую отпускаем (её событие отключения потом пропустим)
             if let old = self.peripheral, old.identifier != id {
@@ -101,6 +115,9 @@ final class LEDController: NSObject, ObservableObject {
             guard let p = self.peripheral else { return }
             self.userDisconnect = true
             self.wantAuto = false
+            self.attempt += 1
+            self.autoScan = false
+            self.stopScanQ()
             self.central.cancelPeripheralConnection(p)
         }
     }
@@ -108,7 +125,7 @@ final class LEDController: NSObject, ObservableObject {
     /// Тихо подключиться к ленте, с которой работали в прошлый раз (на старте и для таймеров)
     func autoConnect() {
         q.async {
-            self.wantAuto = true
+            guard self.wantAuto else { return }
             self.autoScanBudget = 3
             if self.central.state == .poweredOn { self.autoConnectQ() }
         }
@@ -217,7 +234,7 @@ final class LEDController: NSObject, ObservableObject {
             if a.matches != b.matches { return a.matches }
             return a.rssi > b.rssi
         }
-        let list = all.filter { $0.matches || (showAllQ && !$0.name.isEmpty) }
+        let list = all.filter { $0.matches || showAllQ }
         ui { self.found = list }
     }
 
@@ -242,6 +259,9 @@ final class LEDController: NSObject, ObservableObject {
         autoScan = false
         let name = p.name ?? "Лента"
         ui {
+            self.remembered.removeAll { $0.id == p.identifier }
+            self.remembered.insert(Remembered(id: p.identifier, name: name), at: 0)
+            Prefs.set("usedStrips", self.remembered)
             self.isConnected = true
             self.status = .connected(name)
             self.showPicker = false

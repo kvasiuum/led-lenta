@@ -551,6 +551,11 @@
         <p class="hint">Если стоит расширение WebBLE для Safari, страница подхватит его сама.</p>
       </div>
 
+      <button id="disconnectStrip" class="btn" hidden>Отключиться</button>
+      <div id="stripPicker" hidden>
+        <div id="usedStrips"></div>
+        <button class="btn" id="otherStrip">Другие Bluetooth-устройства</button>
+      </div>
       <div class="ios-help" id="connectHelp" hidden>
         <p>Лента не нашлась? Проверь:</p>
         <ol>
@@ -650,6 +655,7 @@
         </form>
         <p class="hint">В SoundCloud: «Поделиться» → «Копировать ссылку». Закрытый плейлист добавляется по секретной ссылке.</p>
 
+        <button id="localWave" class="btn" type="button">Моя волна</button>
         <div id="scLibWrap" hidden>
           <h2 class="sub-h">Мои плейлисты</h2>
           <div class="lib" id="scLib"></div>
@@ -903,17 +909,23 @@
     ch = await service.getCharacteristic(elk ? ELK_CHAR : CHAR);
     setStatus(device.name || 'Подключено', 'on');
     $('connect').hidden = true; $('power').hidden = false; $('connectHelp').hidden = true;
+    $('disconnectStrip').hidden = false;
+    $('stripPicker').hidden = true;
+    const previous = store.get('usedStrips', []);
+    store.set('usedStrips', [device.id, ...previous.filter(id => id !== device.id)]);
     store.set('lastDevice', { id: device.id, name: device.name || '' });
   }
   function useDevice(d) {
     if (device === d) return;
+    device?.removeEventListener('gattserverdisconnected', onDisconnected);
     device = d;
     d.addEventListener('gattserverdisconnected', onDisconnected);
   }
   async function onDisconnected() {
     ch = null; pending.clear();
     $('power').hidden = true;
-    if (userDisconnect) { userDisconnect = false; return; }
+    $('disconnectStrip').hidden = true;
+    if (userDisconnect) { $('connect').hidden = false; setStatus('Не подключено'); return; }
     // the strip dropped the link (e.g. the phone app grabbed it): try to get it back on our own
     for (let i = 1; i <= 4; i++) {
       setStatus(`Переподключаюсь… (${i})`);
@@ -935,7 +947,7 @@
     } catch { return null; }
   }
   async function autoConnect(quiet) {
-    if (ch || reconnecting) return !!ch;
+    if (ch || reconnecting || userDisconnect) return !!ch;
     const d = await knownStrip();
     if (!d) return false;
     reconnecting = true; useDevice(d);
@@ -944,7 +956,7 @@
       // not in range yet: wait for it to show up, then connect
       if (typeof d.watchAdvertisements === 'function') {
         try {
-          const onAdv = async () => { d.removeEventListener('advertisementreceived', onAdv); try { await attach(); } catch {} };
+          const onAdv = async () => { d.removeEventListener('advertisementreceived', onAdv); if (userDisconnect || d !== device) return; try { await attach(); } catch {} };
           d.addEventListener('advertisementreceived', onAdv);
           await d.watchAdvertisements();
           setStatus('Ищу ленту…');
@@ -969,12 +981,38 @@
       $('connectHelp').hidden = false;
     }
   }
-  $('connect').onclick = async () => {
-    if (device && !device.gatt.connected) { try { await attach(); return; } catch {} }
-    if (await autoConnect(false)) return;
-    connectWith({ filters: [{ namePrefix: 'LEDDMX' }, { namePrefix: 'LEDBLE' }, { namePrefix: 'ELK-BLEDDM' }, { services: [SERVICE] }], optionalServices: [SERVICE, ELK_SERVICE] });
+  $('disconnectStrip').onclick = () => {
+    userDisconnect = true;
+    device?.gatt.disconnect();
   };
-  $('connectAll').onclick = () => connectWith({ acceptAllDevices: true, optionalServices: [SERVICE, ELK_SERVICE] });
+  $('connect').onclick = async () => {
+    const bt = getBT();
+    if (!bt) { noBluetooth(); return; }
+    const box = $('usedStrips');
+    box.replaceChildren();
+    $('stripPicker').hidden = false;
+    const used = store.get('usedStrips', [store.get('lastDevice', {})?.id]);
+    let devices = [];
+    try { devices = bt.getDevices ? await bt.getDevices() : []; } catch {}
+    const known = devices.filter(d => used.includes(d.id));
+    if (known.length) {
+      const title = document.createElement('h3');
+      title.textContent = 'Ранее использовались'; box.append(title);
+    }
+    for (const d of known) {
+      const button = document.createElement('button');
+      button.className = 'btn'; button.textContent = d.name || 'Лента';
+      button.onclick = async () => {
+        userDisconnect = false; useDevice(d);
+        try { await attach(); } catch { setStatus('Лента недоступна', 'err'); }
+      };
+      box.append(button);
+    }
+  };
+  $('otherStrip').onclick = $('connectAll').onclick = () => {
+    userDisconnect = false;
+    connectWith({ acceptAllDevices: true, optionalServices: [SERVICE, ELK_SERVICE] });
+  };
   // on open: reconnect by itself to the strip used last time
   setTimeout(() => { if (getBT()) autoConnect(true); }, 700);
 
@@ -1522,6 +1560,11 @@
 
   // quick-access library
   let lib = store.get('scLib', []);
+  $('localWave').onclick = () => {
+    const history = store.get('waveArtists', []);
+    const artist = history[Math.floor(Math.random() * history.length)] || 'monstercat';
+    openSc('https://soundcloud.com/' + encodeURIComponent(artist), true);
+  };
   function slugTitle(url) {
     try {
       const parts = new URL(url).pathname.split('/').filter(p => p && !/^s-[A-Za-z0-9]+$/.test(p));
@@ -1685,6 +1728,16 @@
         sc.widget.getCurrentSound(s => {
           if (gen !== sc.gen || sc.index !== i || !s) return;
           if (s.title && (!sc.sounds[i] || !sc.sounds[i].title || !sc.sounds[i].waveform_url)) { sc.sounds[i] = s; renderPl(); renderPlHead(); refreshBar(); }
+          if (s.permalink_url) {
+            try {
+              const url = new URL(s.permalink_url);
+              const artist = url.pathname.split('/')[1];
+              if (url.hostname === 'soundcloud.com' && artist) {
+                const history = store.get('waveArtists', []);
+                store.set('waveArtists', [artist, ...history].slice(0, 30));
+              }
+            } catch {}
+          }
           loadWave(s.waveform_url ? s : sc.sounds[i]);
         });
       });
