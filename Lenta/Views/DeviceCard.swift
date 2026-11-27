@@ -30,6 +30,10 @@ struct DeviceCard: View {
                 }
             }
 
+            if ble.isConnected {
+                Button("Отключиться", systemImage: "link.badge.minus") { ble.disconnect() }
+                    .buttonStyle(.bordered)
+            }
             StripPreview().padding(.top, 20)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -127,6 +131,13 @@ struct DevicePicker: View {
     var body: some View {
         NavigationStack {
             List {
+                if !ble.remembered.isEmpty {
+                    Section("Ранее использовались") {
+                        ForEach(ble.remembered) { d in
+                            Button(d.name) { ble.choose(d.id) }
+                        }
+                    }
+                }
                 Section {
                     if ble.found.isEmpty {
                         HStack(spacing: 12) {
@@ -135,7 +146,7 @@ struct DevicePicker: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    ForEach(ble.found) { d in
+                    ForEach(ble.found.filter { d in !ble.remembered.contains { $0.id == d.id } }) { d in
                         Button { ble.choose(d.id) } label: {
                             HStack {
                                 Image(systemName: d.matches ? "lightbulb.led.fill" : "dot.radiowaves.left.and.right")

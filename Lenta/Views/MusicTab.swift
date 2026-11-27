@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 struct MusicTab: View {
     @EnvironmentObject var music: MusicModel
 
-    @State private var showWave = false
+    @EnvironmentObject var player: PlayerController
 
     var body: some View {
         VStack(spacing: 14) {
@@ -24,19 +24,14 @@ struct MusicTab: View {
             .card()
             .animation(.spring(response: 0.4, dampingFraction: 0.86), value: music.tab)
 
-            Button("Моя волна · Яндекс Музыка", systemImage: "waveform") {
-                Services.shared.player.pauseActive()
-                showWave = true
+            Button {
+                Task { await player.startWave() }
+            } label: {
+                if player.loadingWave { ProgressView("Подбираю треки…") }
+                else { Label("Моя волна", systemImage: "waveform") }
             }
             .buttonStyle(.bordered)
-            .sheet(isPresented: $showWave) {
-                NavigationStack {
-                    LoginWebView(url: URL(string: "https://music.yandex.ru/")!)
-                        .navigationTitle("Моя волна")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar { Button("Готово") { showWave = false } }
-                }
-            }
+            .disabled(player.loadingWave)
             LightOptionsCard()
         }
     }

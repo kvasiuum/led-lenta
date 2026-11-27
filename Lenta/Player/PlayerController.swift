@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import MediaPlayer
+import WebKit
 import UIKit
 import SwiftUI
 
@@ -38,6 +39,49 @@ final class PlayerController: ObservableObject {
     private var artCache: (String, UIImage)?
     /// Для «назад» в случайном порядке
     private var history: [Int] = []
+    private var recentTrackIDs: [String] = Prefs.get("wave.history", [])
+    @Published private(set) var loadingWave = false
+
+    @MainActor
+    func startWave() async {
+        guard !loadingWave else { return }
+        loadingWave = true
+        defer { loadingWave = false }
+        let cookies = await WKWebsiteDataStore.default().httpCookieStore.allCookies()
+        var sources: Set<TrackSource> = [.soundcloud]
+        for cookie in cookies {
+            let domain = cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
+            if cookie.name == "sp_dc" && (domain == "spotify.com" || domain.hasSuffix(".spotify.com")) {
+                sources.insert(.spotify)
+            }
+            if cookie.name == "Session_id" && ["yandex.ru", "yandex.com"].contains(where: { domain == $0 || domain.hasSuffix("." + $0) }) {
+                sources.insert(.yandex)
+            }
+        }
+        let recent = recentTrackIDs.compactMap { s.library.track($0) }
+        var pool = s.library.tracks.filter { sources.contains($0.source) }
+        if sources.count == 1 || pool.isEmpty {
+            let seed = (recent + pool.shuffled()).first { $0.source == .soundcloud }
+            let artist = seed.flatMap { URL(string: $0.ref)?.path.split(separator: "/").first }.map(String.init)
+            let url = "https://soundcloud.com/" + (artist ?? "monstercat")
+            if case .success(let result) = await Importer.load(url) {
+                let fresh = Array(result.tracks.shuffled().prefix(12))
+                _ = s.library.add(fresh)
+                pool = s.library.tracks.filter { sources.contains($0.source) }
+            }
+        }
+        guard !pool.isEmpty else {
+            s.app.showToast("SoundCloud не ответил. Добавь трек по ссылке и попробуй снова")
+            return
+        }
+        let artists = Set(recent.prefix(25).map { $0.artist.lowercased() }.filter { !$0.isEmpty })
+        let played = Set(recentTrackIDs.prefix(12))
+        func score(_ track: LTrack) -> Int {
+            (artists.contains(track.artist.lowercased()) ? 1 : 0) - (played.contains(track.id) ? 2 : 0)
+        }
+        let ranked = pool.shuffled().sorted { score($0) > score($1) }
+        play(ranked.map(\.id), start: 0, context: "Моя волна")
+    }
 
     func wire() {
         s.files.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
@@ -124,6 +168,9 @@ final class PlayerController: ObservableObject {
         guard let t = s.library.track(queue[k]) else { return }
         if index >= 0 && index != k { history.append(index); if history.count > 200 { history.removeFirst() } }
         index = k
+        recentTrackIDs.insert(t.id, at: 0)
+        recentTrackIDs = Array(recentTrackIDs.prefix(100))
+        Prefs.set("wave.history", recentTrackIDs)
         if t.source == .file {
             s.web.stop()
             s.files.play(t, url: s.library.fileURL(t))
